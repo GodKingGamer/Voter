@@ -337,14 +337,13 @@ function compressImage(file){
 /*__KNOWLEDGE__*/
 var AI_MODEL="Xenova/clip-vit-base-patch32",AI_LIB="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
 var AI_KIT=["áo sân nhà","áo sân khách","áo thứ ba"],AI_KW=["home kit","away kit","third kit"];
-var AI={p:null,tok:null,tm:null,proc:null,vm:null,emb:null,RawImage:null,pct:0,mb:0,err:""};
+var AI={prep:0,p:null,tok:null,tm:null,proc:null,vm:null,emb:null,RawImage:null,pct:0,mb:0,err:""};
 function aiReady(){return lsGet("bc_ai_ready",false)===true}
 function aiAuto(){return lsGet("bc_ai_auto",true)!==false}
 function aiPrompts(){
   var a=[];
   BC_KB.teams.forEach(function(t){for(var k=0;k<3;k++)a.push([
     "a photo of a "+t[1]+" football shirt, "+AI_KW[k]+", "+t[2+k],
-    "a "+t[1]+" soccer jersey, "+AI_KW[k],
     "a football kit set with shirt and shorts of "+t[1]+", "+AI_KW[k]+", "+t[2+k]])});
   a.push(["a photo of a football jersey","a soccer shirt","a football kit set with shirt and shorts"]);
   a.push(["a photo of a soccer shirt","a sports jersey with number","a football team uniform"]);
@@ -354,8 +353,8 @@ function aiPrompts(){
 function aiHash(s){var x=5381;for(var i=0;i<s.length;i++)x=((x<<5)+x+s.charCodeAt(i))|0;return (x>>>0).toString(36)+s.length}
 function aiProg(){
   var b=$("#aibar"),t=$("#aiprogtxt");
-  if(b)b.style.width=Math.round(AI.pct)+"%";
-  if(t)t.textContent=AI.pct>=99?"Đang chuẩn bị bộ nhớ kiến thức…":"Đang tải "+AI.mb.toFixed(0)+" MB · "+Math.round(AI.pct)+"%";
+  if(b)b.style.width=Math.round(AI.prep?AI.prep:AI.pct)+"%";
+  if(t)t.textContent=AI.prep?"Đang học "+BC_KB.teams.length+" đội bóng (chỉ lần đầu, 1–2 phút) · "+Math.round(AI.prep)+"%":"Đang tải "+AI.mb.toFixed(0)+" MB · "+Math.round(AI.pct)+"%";
 }
 function aiLoad(){
   if(AI.p)return AI.p;
@@ -380,11 +379,12 @@ function aiLoad(){
     AI.vm=await lib.CLIPVisionModelWithProjection.from_pretrained(AI_MODEL,{progress_callback:cb});
     AI.RawImage=lib.RawImage;
     var prompts=aiPrompts(),flat=[],owner=[];prompts.forEach(function(g,gi){g.forEach(function(t){flat.push(t);owner.push(gi)})});
-    var key="https://bc.local/emb2-"+aiHash(flat.join("|")),cache=null,buf=null;
+    var key="https://bc.local/emb3-"+aiHash(flat.join("|")),cache=null,buf=null;
     try{cache=await caches.open("bc-ai-v1");var hit=await cache.match(key);if(hit)buf=new Float32Array(await hit.arrayBuffer())}catch(e){}
     if(!buf||buf.length%prompts.length||!buf.length){
       var dim=0,rows=[];
       for(var i=0;i<flat.length;i+=32){
+        AI.prep=Math.max(1,i/flat.length*100);aiProg();await new Promise(function(r){setTimeout(r,0)});
         var inp=AI.tok(flat.slice(i,i+32),{padding:true,truncation:true});
         var out=await AI.tm(inp),te=out.text_embeds;dim=te.dims[1];
         for(var r=0;r<te.dims[0];r++)rows.push(Array.prototype.slice.call(te.data,r*dim,(r+1)*dim));
@@ -399,7 +399,7 @@ function aiLoad(){
       buf=new Float32Array(all);
       try{if(cache)await cache.put(key,new Response(buf.buffer.slice(0)))}catch(e){}
     }
-    AI.emb=buf;AI.pct=100;
+    AI.emb=buf;AI.pct=100;AI.prep=0;
     lsSet("bc_ai_ready",true);
   })().catch(function(e){AI.p=null;AI.err=(e&&e.message)||"Không tải được AI";throw e});
   return AI.p;
@@ -487,7 +487,7 @@ async function aiName(){
   if(!aiReady()){S.aiPanel=true;S.msg={t:"warn",m:"Hãy bấm “Tải và dùng AI” một lần để bật AI nhận diện."};render();return}
   var targets=d.opts.filter(function(o){return o.img&&!cleanName(o.label)});
   if(!targets.length){S.msg={t:"ok",m:"Mọi ảnh đã có tên."};render();return}
-  S.aiBusy=true;S.msg=null;render();
+  S.aiBusy=true;S.msg=AI.emb?null:{t:"warn",m:"AI đang nạp kiến thức, lần đầu sau khi cập nhật có thể mất 1–2 phút. Bạn cứ chờ, ảnh sẽ tự được đặt tên."};render();
   var done=0,unknown=0;
   try{
     await aiLoad();

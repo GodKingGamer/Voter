@@ -79,7 +79,7 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   ok(dec[3] === 'Thìa', 'nhận ra đồ vật: ' + dec[3]);
   ok(dec[4] === null, 'không chắc thì để trống: ' + dec[4]);
   ok(dec[5] === 2, 'gợi ý khác: ' + dec[5] + ' lựa chọn');
-  ok(dec[6] >= 60 && dec[7] >= 150 && dec[8] === dec[6] * 3 + 2 + dec[7], 'kho kiến thức: ' + dec[6] + ' đội, ' + dec[7] + ' đồ vật');
+  ok(dec[6] >= 300 && dec[7] >= 150 && dec[8] === dec[6] * 3 + 2 + dec[7], 'kho kiến thức: ' + dec[6] + ' đội, ' + dec[7] + ' đồ vật');
   const col = await ai.evaluate(async () => { const c = document.createElement('canvas'); c.width = c.height = 40; const x = c.getContext('2d'); const out = []; for (const f of ['#d62020', '#1a3fd0', '#f2d21b', '#222222', '#20a040']) { x.fillStyle = f; x.fillRect(0, 0, 40, 40); out.push(await window.BC_TEST.aiColor(c.toDataURL())); } return out; });
   ok(col.join(',') === 'đỏ,xanh dương,vàng,đen,xanh lá', 'đặt tên màu: ' + col.join(','));
   await ai.waitForSelector('#aiclear');
