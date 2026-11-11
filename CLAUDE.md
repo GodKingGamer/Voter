@@ -11,7 +11,7 @@ App PWA tạo cuộc bình chọn (ảnh và/hoặc chữ), gửi link, ai cũng
 - `src/qc/`: script kiểm tra.
 
 ## Dữ liệu
-`polls/<pid>` {title, desc, ownerId, options[{id,label,img}], maxPick, publicNames, closed, createdAt}; `polls/<pid>/imgs/<oid>` {data: dataURL JPEG}; `polls/<pid>/votes/<tênChuẩnHóa>` {uid,name,choices[],at} (chỉ tạo mới); `polls/<pid>/devices/<uid>` {key,at} (khóa một phiếu mỗi thiết bị).
+`polls/<pid>` {title, desc, ownerId, options[{id,label,img}], maxPick, publicNames, roster[tên được vote, tùy chọn], closed, createdAt}; `polls/<pid>/imgs/<oid>` {data: dataURL JPEG}; `polls/<pid>/votes/<tênChuẩnHóa>` {uid,name,choices[],at} (tạo mới; chủ phiếu sửa choices hoặc rút phiếu khi poll còn mở; cần luật Firestore mới nhất); `polls/<pid>/devices/<uid>` {key,at} (khóa một phiếu mỗi thiết bị).
 Quyền chủ poll gắn với uid đăng nhập ẩn danh của trình duyệt: xóa dữ liệu trình duyệt thì mất quyền quản lý.
 
 ## Quy trình

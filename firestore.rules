@@ -66,12 +66,27 @@ service cloud.firestore {
           && request.resource.data.choices.size() <= get(/databases/$(database)/documents/polls/$(pid)).data.maxPick
           && get(/databases/$(database)/documents/polls/$(pid)).data.closed == false
           && !exists(/databases/$(database)/documents/polls/$(pid)/devices/$(request.auth.uid));
-        allow delete: if signedIn() && pollOwnerNow();
+        // Người đã vote được sửa lựa chọn của chính mình (giữ nguyên tên, uid), khi poll còn mở
+        allow update: if signedIn()
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.name == resource.data.name
+          && request.resource.data.choices is list
+          && request.resource.data.choices.size() >= 1
+          && request.resource.data.choices.size() <= get(/databases/$(database)/documents/polls/$(pid)).data.maxPick
+          && get(/databases/$(database)/documents/polls/$(pid)).data.closed == false;
+        // Chủ poll xóa được mọi phiếu; người vote rút được phiếu của chính mình khi poll còn mở
+        allow delete: if signedIn() && (pollOwnerNow()
+          || (resource.data.uid == request.auth.uid
+              && get(/databases/$(database)/documents/polls/$(pid)).data.closed == false));
       }
       match /devices/{uid} {
         allow create: if signedIn() && request.auth.uid == uid;
         allow read: if signedIn() && (request.auth.uid == uid || pollOwnerNow());
-        allow delete: if signedIn() && pollOwnerNow();
+        // Chủ poll xóa được; người vote chỉ xóa được thẻ thiết bị của mình khi đã rút phiếu (cùng lúc xóa phiếu)
+        allow delete: if signedIn() && (pollOwnerNow()
+          || (request.auth.uid == uid
+              && !existsAfter(/databases/$(database)/documents/polls/$(pid)/votes/$(resource.data.key))));
       }
     }
   }

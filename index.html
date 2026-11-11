@@ -216,6 +216,8 @@ function firestoreBackend(db,uid){
       });
     },
     deleteVote:function(pid,key){return P(pid).collection("votes").doc(key).delete()},
+    updateVote:function(pid,key,patch){return P(pid).collection("votes").doc(key).update(patch)},
+    withdrawVote:function(pid,key){var b=db.batch();b.delete(P(pid).collection("votes").doc(key));b.delete(P(pid).collection("devices").doc(uid));return b.commit()},
     clearVotes:function(pid){return wipe(P(pid),["votes","devices"])},
     deletePoll:function(pid){return wipe(P(pid),["votes","devices","imgs"]).then(function(){return P(pid).delete()})}
   };
@@ -256,6 +258,8 @@ function memoryBackend(){
       if(p._devices[uid])return Promise.resolve({ok:false,error:"device"});
       p._votes[key]=Object.assign({uid:uid},vote);p._devices[uid]={key:key,at:vote.at};save(d);return Promise.resolve({ok:true})},
     deleteVote:function(pid,key){var d=load();delete d.polls[pid]._votes[key];save(d);return Promise.resolve()},
+    updateVote:function(pid,key,patch){var d=load(),p=d.polls[pid],v=p._votes[key];if(p.closed||!v||v.uid!==uid)return Promise.reject({code:"permission-denied"});Object.assign(v,patch);save(d);return Promise.resolve()},
+    withdrawVote:function(pid,key){var d=load(),p=d.polls[pid],v=p._votes[key];if(p.closed||!v||v.uid!==uid)return Promise.reject({code:"permission-denied"});delete p._votes[key];delete p._devices[uid];save(d);return Promise.resolve()},
     clearVotes:function(pid){var d=load();d.polls[pid]._votes={};d.polls[pid]._devices={};save(d);return Promise.resolve()},
     deletePoll:function(pid){var d=load();delete d.polls[pid];save(d);return Promise.resolve()}
   };
@@ -320,7 +324,7 @@ function viewHome(){
 function footer(){
   return h("footer",{class:"ver"},
     S.installEv?h("button",{class:"linkbtn",type:"button",onclick:function(){S.installEv.prompt();S.installEv=null;render()},text:"Cài app lên điện thoại"}):null,
-    h("p",{text:"Bình chọn nhanh · Bản 12 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
+    h("p",{text:"Bình chọn nhanh · Bản 13 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
 }
 
 /* =============== Tạo poll =============== */
@@ -1194,7 +1198,7 @@ async function doCreate(){
 
 /* =============== Trang bình chọn =============== */
 function openPoll(pid){
-  S.view="poll";S.edit=null;S.pid=pid;S.pollErr=false;S.poll=undefined;S.imgs=null;S.votes=null;S.device=undefined;S.sel=new Set();S.name="";S.barsShown=false;
+  S.view="poll";S.edit=null;S.editVote=false;S.pid=pid;S.pollErr=false;S.poll=undefined;S.imgs=null;S.votes=null;S.device=undefined;S.sel=new Set();S.name="";S.barsShown=false;
   S.tab=S.pendingTab||"vote";S.pendingTab=null;render();
   S.unsubs.push(S.be.onPoll(pid,function(p){S.poll=p;if(p&&!S.imgs)loadImgs();render()},function(){S.poll=null;S.pollErr=true;render()}));
   S.unsubs.push(S.be.onVotes(pid,function(v){S.votes=v;render()},function(){S.votes=[];render()}));
@@ -1246,8 +1250,20 @@ function viewVote(){
   var p=S.poll;
   if(p.closed)return h("div",{class:"notice",text:"Cuộc bình chọn đã đóng. Xem tab “Kết quả”."});
   if(S.device===undefined||S.votes===null)return h("div",{class:"skel"});
-  if(S.device){
-    return h("div",{class:"notice ok",text:"Thiết bị này đã bình chọn"+(S.device.key?" (tên: "+nameOf(S.device.key)+")":"")+". Cảm ơn bạn! Xem tab “Kết quả”."});
+  if(S.device&&!S.editVote){
+    var mv=S.device.key?(S.votes||[]).filter(function(x){return x.key===S.device.key})[0]:null;
+    var mine=mv?(mv.choices||[]).map(function(id){var o=p.options.filter(function(x){return x.id===id})[0];return o?o.label:null}).filter(Boolean):[];
+    return h("div",{class:"card",id:"voted"},
+      h("div",{class:"notice ok",style:"margin:0 0 10px",text:"Thiết bị này đã bình chọn"+(S.device.key?" (tên: "+nameOf(S.device.key)+")":"")+". Cảm ơn bạn!"}),
+      mine.length?h("p",{class:"sub",style:"font-size:14px;margin:0 0 10px"},"Bạn đã chọn: ",h("b",{style:"color:var(--ink)",text:mine.join(", ")})):null,
+      mv?h("div",{class:"row2"},
+        h("button",{class:"btn sec sm",id:"editvote",onclick:function(){S.editVote=true;S.name=mv.name||S.device.key;S.sel=new Set((mv.choices||[]).filter(function(id){return p.options.some(function(o){return o.id===id})}));S.msg=null;render()},text:"Sửa phiếu của tôi"}),
+        h("button",{class:"btn danger sm",id:"withdraw",onclick:function(){
+          if(S.armed!=="withdraw"){S.armed="withdraw";render();return}
+          S.armed=null;S.busy=true;render();
+          S.be.withdrawVote(S.pid,S.device.key).then(function(){S.device=null;S.busy=false;S.name="";S.sel=new Set();S.tab="vote";S.msg={t:"ok",m:"Đã rút phiếu. Bạn có thể bình chọn lại nếu muốn."};render()},function(e){S.busy=false;S.msg={t:"err",m:e&&e.code==="permission-denied"?"Chưa rút được: người tạo ứng dụng cần cập nhật luật Firestore (xem hướng dẫn).":"Chưa rút được phiếu, kiểm tra mạng rồi thử lại."};render()});
+        },text:S.armed==="withdraw"?"Bấm lần nữa để rút phiếu":"Rút phiếu (bỏ vote)"})):null,
+      h("p",{class:"sub",style:"font-size:12px;margin:10px 0 0",text:"Chỉ thiết bị và trình duyệt đã bình chọn mới sửa hoặc rút được."}));
   }
   if(!S.name&&p.roster&&p.roster.length){
     var taken={};(S.votes||[]).forEach(function(v){taken[v.key]=1});
@@ -1281,12 +1297,12 @@ function viewVote(){
   return h("div",null,
     h("div",{class:"row2",style:"justify-content:space-between;margin-bottom:10px;font-size:14px;color:var(--muted)"},
       h("span",null,"Đang vote với tên: ",h("b",{style:"color:var(--ink)",text:S.name})),
-      h("button",{class:"linkbtn",onclick:function(){S.name="";S.sel=new Set();render()},text:"Đổi tên"})),
+      S.editVote?h("button",{class:"linkbtn",id:"cancelvote",onclick:function(){S.editVote=false;S.name="";S.sel=new Set();S.msg=null;render()},text:"Hủy sửa"}):h("button",{class:"linkbtn",onclick:function(){S.name="";S.sel=new Set();render()},text:"Đổi tên"})),
     h("p",{class:"sub",style:"font-size:14px",text:hint+". Chạm vào ảnh/ô để chọn."}),
     h("div",{class:"grid"},cards),
     h("div",{class:"bar"},h("div",{class:"in"},
       h("div",{class:"cnt"},n?"Đã chọn "+n+"/"+p.options.length:"Chưa chọn lựa chọn nào"),
-      h("button",{class:"btn",id:"submit",disabled:S.busy||n===0,onclick:submit,text:S.busy?"Đang gửi…":"Gửi bình chọn"}))));
+      h("button",{class:"btn",id:"submit",disabled:S.busy||n===0,onclick:submit,text:S.busy?"Đang gửi…":(S.editVote?"Lưu thay đổi phiếu":"Gửi bình chọn")}))));
 }
 function nameOf(key){var v=(S.votes||[]).filter(function(x){return x.key===key})[0];return v&&v.name?v.name:key}
 function startVote(){
@@ -1299,6 +1315,11 @@ async function submit(){
   S.busy=true;S.msg=null;render();
   var choices=p.options.map(function(o){return o.id}).filter(function(id){return S.sel.has(id)});
   var r;
+  if(S.editVote){
+    try{await S.be.updateVote(S.pid,nameKey(S.name),{choices:choices,at:Date.now()});S.busy=false;S.editVote=false;S.tab="res";S.barsShown=false;S.msg={t:"ok",m:"Đã cập nhật phiếu của bạn."}}
+    catch(e){S.busy=false;S.msg={t:"err",m:e&&e.code==="permission-denied"?"Chưa sửa được: cuộc bình chọn đã đóng, hoặc người tạo ứng dụng cần cập nhật luật Firestore (xem hướng dẫn).":"Chưa lưu được, kiểm tra mạng rồi thử lại."}}
+    render();return;
+  }
   try{r=await S.be.submitVote(S.pid,nameKey(S.name),{name:S.name,choices:choices,at:Date.now()})}catch(e){r={ok:false,error:"net"}}
   S.busy=false;
   if(r.ok){S.device={key:nameKey(S.name),at:Date.now()};S.tab="res";S.barsShown=false;S.msg={t:"ok",m:"Đã ghi nhận bình chọn của bạn. Cảm ơn!"}}

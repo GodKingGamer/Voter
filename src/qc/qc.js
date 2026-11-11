@@ -171,6 +171,24 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   await v1.reload(); await v1.waitForSelector('.tab'); await v1.click('.tab >> nth=0');
   ok(await v1.locator('text=đã bình chọn').count() > 0, 'tải lại: thiết bị này bị khóa');
 
+  // ---- Người vote rồi: sửa phiếu và rút phiếu
+  await v1.click('.tab >> nth=0'); await v1.waitForSelector('#voted');
+  ok((await v1.locator('#voted').innerText()).includes('Bạn đã chọn'), 'người đã vote thấy lựa chọn của mình');
+  await v1.click('#editvote'); await v1.waitForSelector('#submit');
+  ok((await v1.locator('.opt[aria-pressed=true]').count()) === 3, 'sửa phiếu: lựa chọn cũ được chọn sẵn');
+  await v1.locator('.opt').nth(0).click();
+  ok((await v1.locator('#submit').innerText()).includes('Lưu thay đổi'), 'nút gửi đổi thành "Lưu thay đổi phiếu"');
+  await v1.click('#submit'); await v1.waitForSelector('.rrow');
+  ok((await v1.locator('.stat b').first().innerText()) === '1', 'sửa phiếu không làm tăng số người vote (vẫn 1)');
+  await v1.click('.tab >> nth=0'); await v1.waitForSelector('#voted');
+  ok((await v1.locator('#voted').innerText()).includes('Bạn đã chọn'), 'sau khi sửa vẫn ở trạng thái đã vote');
+  await v1.click('#withdraw'); ok((await v1.locator('#withdraw').innerText()).includes('lần nữa'), 'rút phiếu phải bấm xác nhận lần 2');
+  await v1.click('#withdraw'); await v1.waitForSelector('#nm');
+  ok(true, 'rút phiếu xong: được bình chọn lại');
+  await v1.fill('#nm', 'Nguyễn Văn An'); await v1.click('#go'); await v1.waitForSelector('.opt');
+  await v1.locator('.opt').nth(1).click(); await v1.click('#submit'); await v1.waitForSelector('.rrow');
+  ok((await v1.locator('.stat b').first().innerText()) === '1', 'vote lại sau khi rút: tổng vẫn 1 người');
+
   // ---- Trùng tên (người khác, thiết bị khác)
   const v2 = await mk(); await v2.goto(url); await v2.waitForSelector('#nm');
   await v2.fill('#nm', '  nguyen van an '); await v2.click('#go'); await v2.waitForSelector('.opt');
