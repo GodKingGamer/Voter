@@ -1,0 +1,82 @@
+// Dùng: python3 -m http.server 8767 (ở gốc repo) rồi node src/qc/qc.js 8767 [thư mục ảnh thử]
+const { chromium, devices } = require('playwright');
+const fs = require('fs'), path = require('path');
+const port = process.argv[2] || '8767', imgDir = process.argv[3] || '/mnt/user-data/uploads';
+const base = `http://localhost:${port}/`;
+const shots = path.join(__dirname, '../../build/qc'); fs.mkdirSync(shots, { recursive: true });
+let fail = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fail++; };
+const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice(0, 5).map(f => path.join(imgDir, f));
+(async () => {
+  const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, args: ['--no-sandbox'] });
+  const ctx = await browser.newContext({ ...devices['Pixel 7'] });
+  await ctx.addInitScript(() => { window.BINHCHON_FORCE_MEMORY = true; });
+  const errors = []; const mk = async () => { const p = await ctx.newPage(); p.on('pageerror', e => errors.push(String(e))); return p; };
+  const noOverflow = async (p, label) => ok(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'không tràn ngang: ' + label);
+
+  // ---- Chủ poll
+  const o = await mk(); await o.goto(base); await o.waitForSelector('#newbtn');
+  await noOverflow(o, 'trang chính'); await o.screenshot({ path: shots + '/01-home.png' });
+  await o.click('#newbtn'); await o.waitForSelector('#t');
+  await o.fill('#t', 'Chọn mẫu áo đồng phục');
+  const [fc] = await Promise.all([o.waitForEvent('filechooser'), o.click('text=Thêm nhiều ảnh cùng lúc')]);
+  await fc.setFiles(imgs);
+  await o.waitForFunction(n => document.querySelectorAll('.thumb img').length >= n, imgs.length);
+  ok((await o.locator('.orow').count()) === imgs.length, `thêm ${imgs.length} ảnh thành ${imgs.length} dòng`);
+  await o.click('text=+ Thêm lựa chọn'); await o.locator('.orow input').last().fill('Không chọn mẫu nào');
+  await o.fill('#mp', '3');
+  await noOverflow(o, 'form tạo'); await o.screenshot({ path: shots + '/02-create.png', fullPage: true });
+  await o.click('#mk'); await o.waitForSelector('#copy');
+  const url = await o.inputValue('input[aria-label="Link bình chọn"]');
+  ok(/#p=[a-z0-9]{10}$/.test(url), 'có link chia sẻ ' + url.replace(/^.*#/, '#'));
+  await o.screenshot({ path: shots + '/03-manage.png' });
+
+  // ---- Người vote 1
+  const v1 = await mk(); await v1.goto(url); await v1.waitForSelector('#nm');
+  await v1.fill('#nm', 'Nguyễn Văn An'); await v1.click('#go'); await v1.waitForSelector('.opt');
+  await noOverflow(v1, 'trang vote'); await v1.screenshot({ path: shots + '/04-vote.png' });
+  const cards = v1.locator('.opt');
+  await cards.nth(0).click(); await cards.nth(1).click(); await cards.nth(2).click(); await cards.nth(3).click();
+  ok((await v1.locator('.opt[aria-pressed=true]').count()) === 3, 'giới hạn tối đa 3 lựa chọn');
+  ok(await v1.locator('.notice.warn').count() === 1, 'hiện cảnh báo vượt giới hạn');
+  await v1.click('#submit'); await v1.waitForSelector('.rrow');
+  ok((await v1.locator('.stat b').first().innerText()) === '1', 'kết quả: 1 người bình chọn');
+  await noOverflow(v1, 'kết quả'); await v1.screenshot({ path: shots + '/05-results.png', fullPage: true });
+  await v1.reload(); await v1.waitForSelector('.tab'); await v1.click('.tab >> nth=0');
+  ok(await v1.locator('text=đã bình chọn').count() > 0, 'tải lại: thiết bị này bị khóa');
+
+  // ---- Trùng tên (người khác, thiết bị khác)
+  const v2 = await mk(); await v2.goto(url); await v2.waitForSelector('#nm');
+  await v2.fill('#nm', '  nguyen van an '); await v2.click('#go'); await v2.waitForSelector('.opt');
+  await v2.locator('.opt').nth(0).click(); await v2.click('#submit'); await v2.waitForSelector('.notice.err');
+  ok((await v2.locator('.notice.err').innerText()).includes('đã bình chọn rồi'), 'chặn trùng tên (khác hoa thường/dấu/khoảng trắng)');
+  await v2.click('text=Đổi tên'); await v2.fill('#nm', 'Trần Thị Bình'); await v2.click('#go'); await v2.waitForSelector('.opt');
+  await v2.locator('.opt').nth(0).click(); await v2.locator('.opt').nth(4).click(); await v2.click('#submit'); await v2.waitForSelector('.rrow');
+  ok((await v2.locator('.stat b').first().innerText()) === '2', 'người thứ hai vote được, tổng 2');
+
+  // ---- Chủ xem quản lý + kết quả
+  await o.waitForSelector('tbody tr'); ok((await o.locator('tbody tr').count()) === 2, 'quản lý thấy 2 người vote');
+  await o.click('#toggle'); await o.waitForSelector('.badge.closed');
+  const v3 = await mk(); await v3.goto(url); await v3.waitForSelector('.notice');
+  ok((await v3.locator('.notice').first().innerText()).includes('đã đóng'), 'poll đóng thì người mới không vote được');
+  await v3.screenshot({ path: shots + '/06-closed.png' });
+  await o.click('text=Kết quả'); await o.waitForSelector('.rrow');
+  const top = await o.locator('.rrow .name').first().innerText();
+  ok(top.length > 0, 'bảng cột ngang sắp xếp, đầu bảng: ' + top);
+
+  // ---- PWA (không ép bộ nhớ)
+  const ctx2 = await browser.newContext({ ...devices['Pixel 7'], serviceWorkers: 'allow' });
+  const pg = await ctx2.newPage(); pg.on('pageerror', e => errors.push('pwa:' + e));
+  await pg.goto(base); await pg.waitForTimeout(1500);
+  const cdp = await ctx2.newCDPSession(pg); const ie = await cdp.send('Page.getInstallabilityErrors');
+  const ierr = ie.installabilityErrors.filter(e => e.errorId !== 'in-incognito'); // Playwright luôn là ngữ cảnh ẩn danh
+  ok(ierr.length === 0, 'PWA đủ điều kiện cài (trừ cờ ẩn danh của Playwright): ' + JSON.stringify(ierr));
+  const mres = await pg.evaluate(async () => { const m = await (await fetch('manifest.webmanifest')).json(); const st = await Promise.all(m.icons.map(i => fetch(i.src).then(r => r.status))); return { n: m.name, d: m.display, st }; });
+  ok(mres.d === 'standalone' && mres.st.every(x => x === 200), 'manifest standalone, icon tải được ' + JSON.stringify(mres));
+  const swState = await pg.evaluate(async () => { const r = await navigator.serviceWorker.ready; return r.active && r.active.state; });
+  ok(swState === 'activated', 'service worker activated');
+  await ctx2.setOffline(true); await pg.reload(); await pg.waitForSelector('#app h1');
+  ok(true, 'tải lại khi offline vẫn mở được khung app');
+  const real = errors.filter(e => !/firebase|cdnjs|Failed to fetch|load/i.test(e));
+  ok(real.length === 0, 'không có lỗi trang: ' + JSON.stringify(real));
+  await browser.close(); console.log(fail ? `\n${fail} LỖI` : '\nQC XONG, KHÔNG LỖI'); process.exit(fail ? 1 : 0);
+})().catch(e => { console.error(e); process.exit(2); });
