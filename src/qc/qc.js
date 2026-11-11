@@ -13,6 +13,21 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   const errors = []; const mk = async () => { const p = await ctx.newPage(); p.on('pageerror', e => errors.push(String(e))); return p; };
   const noOverflow = async (p, label) => ok(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'không tràn ngang: ' + label);
 
+  // ---- Dán và kéo thả ảnh
+  const dz = await mk(); await dz.goto(base + '#new'); await dz.waitForSelector('#t');
+  const mkFiles = n => dz.evaluate(async n => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); for (let i = 0; i < n; i++) dt.items.add(new File([b], 'a' + i + '.png', { type: 'image/png' })); return dt.files.length; }, n);
+  await dz.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], 'p.png', { type: 'image/png' })); document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); });
+  await dz.waitForFunction(() => document.querySelectorAll('.thumb img').length === 1);
+  ok(true, 'dán ảnh (Ctrl+V) vào dòng trống đầu tiên');
+  await dz.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); for (let i = 0; i < 2; i++) dt.items.add(new File([b], 'd' + i + '.png', { type: 'image/png' })); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await dz.waitForFunction(() => document.querySelectorAll('.thumb img').length === 3);
+  ok((await dz.locator('.orow').count()) === 3, 'kéo thả 2 ảnh: điền dòng trống rồi thêm dòng mới (tổng 3)');
+  await dz.evaluate(async () => { const b = await (await fetch('icons/icon-512.png')).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], 'r.png', { type: 'image/png' })); const t = document.querySelectorAll('.thumb')[1]; t.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await dz.waitForTimeout(800);
+  ok((await dz.locator('.orow').count()) === 3 && (await dz.locator('.thumb img').count()) === 3, 'thả vào ô ảnh nhỏ: thay ảnh, không thêm dòng');
+  ok(await dz.locator('#pastebtn').count() === 1, 'có nút Dán ảnh');
+  await noOverflow(dz, 'form tạo (có ảnh)');
+
   // ---- Chủ poll
   const o = await mk(); await o.goto(base); await o.waitForSelector('#newbtn');
   await noOverflow(o, 'trang chính'); await o.screenshot({ path: shots + '/01-home.png' });
