@@ -53,6 +53,9 @@ textarea{resize:vertical;min-height:64px}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .orow input{flex:1;min-width:0}
 .x{border:0;background:none;color:var(--muted);font-size:22px;cursor:pointer;padding:4px 8px}
+.dropzone{border:2px dashed var(--muted);border-radius:12px;padding:18px 12px;text-align:center;display:grid;gap:2px;margin-bottom:12px;cursor:pointer;color:var(--muted);font-size:14px}
+.dropzone b{color:var(--ink);font-size:16px}
+.card.dz .dropzone{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .card.dz{outline:3px dashed var(--accent);outline-offset:-3px;background:var(--accent-soft)}
 .thumb.dz{border-color:var(--accent);border-style:solid;background:var(--accent-soft)}
 .chk-row{display:flex;gap:10px;align-items:center;margin:10px 0}
@@ -305,7 +308,7 @@ function viewHome(){
 function footer(){
   return h("footer",{class:"ver"},
     S.installEv?h("button",{class:"linkbtn",type:"button",onclick:function(){S.installEv.prompt();S.installEv=null;render()},text:"Cài app lên điện thoại"}):null,
-    h("p",{text:"Bình chọn nhanh · Bản 03 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
+    h("p",{text:"Bình chọn nhanh · Bản 04 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
 }
 
 /* =============== Tạo poll =============== */
@@ -362,7 +365,8 @@ function aiPanel(){
   var has=!!aiKey();
   return h("div",{class:"notice",style:"margin-top:12px"},
     h("b",{text:"AI đặt tên ảnh (Claude)"}),
-    h("p",{class:"sub",style:"font-size:13px;margin:6px 0",text:"Dán API key lấy ở console.anthropic.com (mục API keys; tính phí theo lượt dùng, vài trăm đồng mỗi ảnh). Key chỉ lưu trong trình duyệt này và chỉ gửi tới api.anthropic.com. Ảnh được gửi cho Claude để nhận diện."}),
+    h("p",{class:"sub",style:"font-size:13px;margin:6px 0",text:"API key giống một “chìa khóa” để app nhờ Claude xem ảnh giúp bạn. Lấy ở console.anthropic.com → API keys (tính phí theo lượt dùng, vài trăm đồng mỗi ảnh). Key chỉ lưu trong trình duyệt này và chỉ gửi tới api.anthropic.com. Ảnh được gửi cho Claude để nhận diện."}),
+    h("a",{class:"linkbtn",href:"https://console.anthropic.com/settings/keys",target:"_blank",rel:"noopener",text:"Mở trang lấy key"}),
     h("input",{type:"password",id:"aikey",autocomplete:"off","aria-label":"API key",placeholder:has?"Đã lưu key (dán key mới để thay)":"sk-ant-..."}),
     h("label",{class:"chk-row"},h("input",{type:"checkbox",checked:aiAuto(),onchange:function(e){lsSet("bc_ai_auto",e.target.checked)}}),h("span",{text:"Tự đặt tên ngay khi thêm ảnh"})),
     h("div",{class:"row2"},
@@ -387,7 +391,21 @@ function addImageFiles(fs){
     afterImages();
   });
 }
-function hasFiles(e){var t=e.dataTransfer&&e.dataTransfer.types;return !!t&&Array.prototype.indexOf.call(t,"Files")>=0}
+function hasFiles(e){
+  var t=e.dataTransfer&&e.dataTransfer.types;if(!t)return false;
+  return ["Files","text/uri-list","text/html"].some(function(k){return Array.prototype.indexOf.call(t,k)>=0});
+}
+function dropImages(e){
+  var dt=e.dataTransfer,fs=Array.from(dt.files||[]).filter(isImg);
+  if(fs.length)return Promise.resolve(fs);
+  var url="",m=/<img[^>]+src=["']([^"']+)["']/i.exec(dt.getData("text/html")||"");
+  if(m)url=m[1];
+  if(!url)url=(dt.getData("text/uri-list")||"").split(/\r?\n/).filter(function(l){return l&&l[0]!=="#"})[0]||"";
+  if(!/^(https?:|data:image\/)/i.test(url))return Promise.resolve([]);
+  return fetch(url).then(function(r){if(!r.ok)throw 0;return r.blob()}).then(function(b){return isImg(b)?[new File([b],"web.jpg",{type:b.type})]:[]}).catch(function(){
+    S.msg={t:"warn",m:"Trang nguồn không cho lấy ảnh trực tiếp. Hãy chuột phải vào ảnh → Sao chép ảnh, rồi nhấn Ctrl+V ở đây (hoặc lưu ảnh về rồi kéo thả)."};render();return [];
+  });
+}
 function pasteFromClipboard(){
   if(!navigator.clipboard||!navigator.clipboard.read){S.msg={t:"warn",m:"Trình duyệt không cho đọc clipboard. Hãy bấm vào ô tên một lựa chọn rồi dán (Ctrl+V)."};render();return}
   navigator.clipboard.read().then(function(items){
@@ -413,8 +431,8 @@ function viewCreate(){
       ondragleave:function(e){e.currentTarget.classList.remove("dz")},
       ondrop:function(e){
         if(!hasFiles(e))return;e.preventDefault();e.stopPropagation();
-        var f=Array.from(e.dataTransfer.files).filter(isImg)[0];if(!f)return;
-        compressImage(f).then(function(u){o.img=u;afterImages()},function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
+        dropImages(e).then(function(fs){var f=fs[0];if(!f)return;
+          return compressImage(f).then(function(u){o.img=u;afterImages()},function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()})});
       },
       onclick:function(){
       pickFiles(false).then(function(fs){if(!fs[0])return;return compressImage(fs[0]).then(function(u){o.img=u;afterImages()})}).catch(function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
@@ -434,6 +452,10 @@ function viewCreate(){
       h("textarea",{id:"d",maxlength:500,placeholder:"Hạn bình chọn, lưu ý…",value:d.desc,oninput:function(e){d.desc=e.target.value}})),
     h("div",{class:"card",id:"optcard"},
       h("h2",{text:"Các lựa chọn (ảnh và/hoặc chữ)"}),
+      h("div",{class:"dropzone",id:"dropzone",role:"button",tabindex:0,
+        onclick:function(){pickFiles(true).then(addImageFiles)},
+        onkeydown:function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();pickFiles(true).then(addImageFiles)}}},
+        h("b",{text:"Kéo thả ảnh vào đây"}),h("span",{text:"hoặc bấm để chọn ảnh · hoặc sao chép ảnh rồi nhấn Ctrl+V"})),
       h("div",{class:"opts"},rows),
       h("div",{class:"row2",style:"margin-top:12px"},
         h("button",{class:"btn sec sm",type:"button",disabled:d.opts.length>=12,onclick:function(){d.opts.push(newOpt());render()},text:"+ Thêm lựa chọn"}),
@@ -443,7 +465,7 @@ function viewCreate(){
         h("button",{class:"btn sec sm",type:"button",id:"aibtn",disabled:S.aiBusy,onclick:aiName,text:S.aiBusy?"AI đang xem ảnh…":"✨ AI đặt tên cho ảnh"}),
         h("button",{class:"linkbtn",type:"button",id:"aiset",onclick:function(){S.aiPanel=!S.aiPanel;render()},text:aiKey()?"Cài đặt AI (đã có key)":"Cài đặt AI"})),
       S.aiPanel?aiPanel():null,
-      h("p",{class:"sub",style:"font-size:13px;margin:10px 0 0",text:"Kéo thả ảnh vào đây (thả vào ô ảnh nhỏ để thay ảnh đó), dán ảnh bằng Ctrl+V, hoặc bấm chọn từ máy. Tối đa 12 lựa chọn, ảnh tự thu nhỏ. Lựa chọn chỉ có ảnh sẽ tên “Mẫu 1, Mẫu 2…”."})),
+      h("p",{class:"sub",style:"font-size:13px;margin:10px 0 0",text:"Thả ảnh vào ô ảnh nhỏ của một dòng để thay ảnh đó. Tối đa 12 lựa chọn, ảnh tự thu nhỏ. Lựa chọn chỉ có ảnh sẽ tên “Mẫu 1, Mẫu 2…”."})),
     h("div",{class:"card"},
       h("h2",{text:"Cách bình chọn"}),
       h("label",{class:"chk-row"},h("input",{type:"checkbox",checked:d.multi,onchange:function(e){d.multi=e.target.checked;render()}}),h("span",{text:"Cho chọn nhiều lựa chọn"})),
@@ -666,7 +688,7 @@ document.addEventListener("dragleave",function(e){
 document.addEventListener("drop",function(e){
   if(!hasFiles(e))return;e.preventDefault();
   var c=document.getElementById("optcard");if(c)c.classList.remove("dz");
-  if(S.view==="create")addImageFiles(e.dataTransfer.files);
+  if(S.view==="create")dropImages(e).then(function(fs){if(fs.length)addImageFiles(fs)});
 });
 document.addEventListener("paste",function(e){
   if(S.view!=="create"||!e.clipboardData)return;

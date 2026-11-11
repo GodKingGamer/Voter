@@ -26,6 +26,13 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   await dz.waitForTimeout(800);
   ok((await dz.locator('.orow').count()) === 3 && (await dz.locator('.thumb img').count()) === 3, 'thả vào ô ảnh nhỏ: thay ảnh, không thêm dòng');
   ok(await dz.locator('#pastebtn').count() === 1, 'có nút Dán ảnh');
+  ok(await dz.locator('#dropzone').count() === 1 && (await dz.locator('#dropzone').innerText()).includes('Kéo thả'), 'có khung kéo thả hiện rõ');
+  const [fc2] = await Promise.all([dz.waitForEvent('filechooser'), dz.click('#dropzone')]); ok(!!fc2, 'bấm vào khung kéo thả mở hộp chọn ảnh');
+  await dz.evaluate(() => { const dt = new DataTransfer(); dt.setData('text/uri-list', location.origin + '/icons/icon-192.png'); dt.setData('text/html', '<img src="' + location.origin + '/icons/icon-192.png">'); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await dz.waitForFunction(() => document.querySelectorAll('.thumb img').length === 4);
+  ok(true, 'kéo ảnh từ trang web khác (URL) thả vào: lấy được ảnh');
+  await dz.evaluate(() => { const dt = new DataTransfer(); dt.setData('text/uri-list', 'https://khong-ton-tai.invalid/a.png'); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await dz.waitForSelector('.notice.warn'); ok((await dz.locator('.notice.warn').innerText()).includes('Sao chép ảnh'), 'ảnh web không lấy được: báo cách làm khác');
   await noOverflow(dz, 'form tạo (có ảnh)');
 
   // ---- AI đặt tên (API giả lập)
