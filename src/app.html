@@ -48,6 +48,7 @@ input[type=text],input[type=number],input[type=password],textarea{width:100%;fon
 input:focus,textarea:focus{outline:3px solid var(--accent-soft);border-color:var(--accent)}
 textarea{resize:vertical;min-height:64px}
 .opts{display:flex;flex-direction:column;gap:8px}
+.oitem{display:flex;flex-direction:column;gap:6px}.alts{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:60px;font-size:12px;color:var(--muted)}.chip{border:1px solid var(--line);background:var(--accent-soft);color:var(--ink);border-radius:99px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
 .orow{display:flex;gap:8px;align-items:center}
 .thumb{width:56px;height:56px;border-radius:10px;border:1px dashed var(--muted);background:var(--bg);color:var(--muted);display:grid;place-items:center;font-size:12px;text-align:center;cursor:pointer;overflow:hidden;flex:none;padding:0;font-family:inherit}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block}
@@ -341,9 +342,13 @@ function aiReady(){return lsGet("bc_ai_ready",false)===true}
 function aiAuto(){return lsGet("bc_ai_auto",true)!==false}
 function aiPrompts(){
   var a=[];
-  BC_KB.teams.forEach(function(t){for(var k=0;k<3;k++)a.push("a photo of a "+t[1]+" football shirt, "+AI_KW[k]+", "+t[2+k])});
-  a.push("a photo of a football jersey","a photo of a soccer shirt");
-  BC_KB.objects.forEach(function(o){a.push("a photo of "+o[1])});
+  BC_KB.teams.forEach(function(t){for(var k=0;k<3;k++)a.push([
+    "a photo of a "+t[1]+" football shirt, "+AI_KW[k]+", "+t[2+k],
+    "a "+t[1]+" soccer jersey, "+AI_KW[k],
+    "a football kit set with shirt and shorts of "+t[1]+", "+AI_KW[k]+", "+t[2+k]])});
+  a.push(["a photo of a football jersey","a soccer shirt","a football kit set with shirt and shorts"]);
+  a.push(["a photo of a soccer shirt","a sports jersey with number","a football team uniform"]);
+  BC_KB.objects.forEach(function(o){a.push(["a photo of "+o[1],"a close-up photo of "+o[1],o[1]+" on a plain background"])});
   return a;
 }
 function aiHash(s){var x=5381;for(var i=0;i<s.length;i++)x=((x<<5)+x+s.charCodeAt(i))|0;return (x>>>0).toString(36)+s.length}
@@ -374,19 +379,23 @@ function aiLoad(){
     AI.proc=await lib.AutoProcessor.from_pretrained(AI_MODEL);
     AI.vm=await lib.CLIPVisionModelWithProjection.from_pretrained(AI_MODEL,{progress_callback:cb});
     AI.RawImage=lib.RawImage;
-    var prompts=aiPrompts(),key="https://bc.local/emb-"+aiHash(prompts.join("|")),cache=null,buf=null;
+    var prompts=aiPrompts(),flat=[],owner=[];prompts.forEach(function(g,gi){g.forEach(function(t){flat.push(t);owner.push(gi)})});
+    var key="https://bc.local/emb2-"+aiHash(flat.join("|")),cache=null,buf=null;
     try{cache=await caches.open("bc-ai-v1");var hit=await cache.match(key);if(hit)buf=new Float32Array(await hit.arrayBuffer())}catch(e){}
-    if(!buf||buf.length%prompts.length){
-      var dim=0,all=[];
-      for(var i=0;i<prompts.length;i+=32){
-        var inp=AI.tok(prompts.slice(i,i+32),{padding:true,truncation:true});
+    if(!buf||buf.length%prompts.length||!buf.length){
+      var dim=0,rows=[];
+      for(var i=0;i<flat.length;i+=32){
+        var inp=AI.tok(flat.slice(i,i+32),{padding:true,truncation:true});
         var out=await AI.tm(inp),te=out.text_embeds;dim=te.dims[1];
-        for(var r=0;r<te.dims[0];r++){
-          var v=Array.prototype.slice.call(te.data,r*dim,(r+1)*dim),n=0,j;
-          for(j=0;j<dim;j++)n+=v[j]*v[j];n=Math.sqrt(n)||1;
-          for(j=0;j<dim;j++)all.push(v[j]/n);
-        }
+        for(var r=0;r<te.dims[0];r++)rows.push(Array.prototype.slice.call(te.data,r*dim,(r+1)*dim));
       }
+      var all=[];
+      prompts.forEach(function(g,gi){
+        var m=new Array(dim).fill(0),c=0,j;
+        rows.forEach(function(v,ri){if(owner[ri]!==gi)return;c++;var n=0;for(j=0;j<dim;j++)n+=v[j]*v[j];n=Math.sqrt(n)||1;for(j=0;j<dim;j++)m[j]+=v[j]/n});
+        var n2=0;for(j=0;j<dim;j++)n2+=m[j]*m[j];n2=Math.sqrt(n2)||1;
+        for(j=0;j<dim;j++)all.push(m[j]/n2);
+      });
       buf=new Float32Array(all);
       try{if(cache)await cache.put(key,new Response(buf.buffer.slice(0)))}catch(e){}
     }
@@ -397,22 +406,26 @@ function aiLoad(){
 }
 function aiSoftmax(L){var m=-1e9,i,s=0,P=new Array(L.length);for(i=0;i<L.length;i++)if(L[i]>m)m=L[i];for(i=0;i<L.length;i++){P[i]=Math.exp(L[i]-m);s+=P[i]}for(i=0;i<L.length;i++)P[i]/=s;return P}
 function aiDecide(P,color){
-  var T=BC_KB.teams,O=BC_KB.objects,nT=T.length*3,fb=0,i;
+  var T=BC_KB.teams,O=BC_KB.objects,nT=T.length*3,fb=0,i,alts=[];
   for(i=0;i<nT+2;i++)fb+=P[i];
-  if(fb>=0.5){
-    var bt=-1,bp=0;
-    for(i=0;i<T.length;i++){var s=P[i*3]+P[i*3+1]+P[i*3+2];if(s>bp){bp=s;bt=i}}
-    if(bt>=0&&bp>=0.25&&bp/fb>=0.4){
-      var k=0,ks=P[bt*3];
-      if(P[bt*3+1]>ks){k=1;ks=P[bt*3+1]}
-      if(P[bt*3+2]>ks){k=2;ks=P[bt*3+2]}
-      return ks/bp>=0.5?T[bt][0]+" – "+AI_KIT[k]:"Áo đấu "+T[bt][0];
-    }
-    return "Áo bóng đá"+(color?" màu "+color:"");
+  function teamName(t,onlyKit){
+    var k=0,ks=P[t*3],tot=P[t*3]+P[t*3+1]+P[t*3+2];
+    if(P[t*3+1]>ks){k=1;ks=P[t*3+1]}
+    if(P[t*3+2]>ks){k=2;ks=P[t*3+2]}
+    return ks/(tot||1)>=0.5?T[t][0]+" – "+AI_KIT[k]:"Áo đấu "+T[t][0];
   }
-  var bo=-1,op=0;
-  for(i=0;i<O.length;i++){var q=P[nT+2+i];if(q>op){op=q;bo=i}}
-  return bo>=0&&op>=0.25?O[bo][0]:null;
+  if(fb>=0.4){
+    var sc=T.map(function(t,i){return [i,P[i*3]+P[i*3+1]+P[i*3+2]]}).sort(function(a,b){return b[1]-a[1]});
+    sc.slice(0,3).forEach(function(x){if(x[1]>=0.02)alts.push(teamName(x[0]))});
+    var bt=sc[0][0],bp=sc[0][1];
+    var name=(bp>=0.15&&bp/fb>=0.3)?teamName(bt):"Áo bóng đá"+(color?" màu "+color:"");
+    return {name:name,alts:alts.filter(function(x){return x!==name}).slice(0,3),sure:name!==("Áo bóng đá"+(color?" màu "+color:""))};
+  }
+  var os=O.map(function(o,i){return [i,P[nT+2+i]]}).sort(function(a,b){return b[1]-a[1]});
+  os.slice(0,3).forEach(function(x){if(x[1]>=0.03)alts.push(O[x[0]][0])});
+  var top=os[0];
+  if(top[1]>=0.2)return {name:O[top[0]][0],alts:alts.slice(1),sure:true};
+  return {name:null,alts:alts,sure:false};
 }
 function aiColor(dataUrl){
   return new Promise(function(res){
@@ -421,36 +434,53 @@ function aiColor(dataUrl){
       try{
         var c=document.createElement("canvas");c.width=c.height=24;var x=c.getContext("2d");
         x.drawImage(im,im.width*.2,im.height*.2,im.width*.6,im.height*.6,0,0,24,24);
-        var d=x.getImageData(0,0,24,24).data,r=0,g=0,b=0,n=0;
-        for(var i=0;i<d.length;i+=4){var mx=Math.max(d[i],d[i+1],d[i+2]),mn=Math.min(d[i],d[i+1],d[i+2]);if(mn>225&&mx-mn<20)continue;r+=d[i];g+=d[i+1];b+=d[i+2];n++}
-        if(!n){res("trắng");return}
-        r/=n;g/=n;b/=n;
-        var mx2=Math.max(r,g,b),mn2=Math.min(r,g,b),l=(mx2+mn2)/510,dl=mx2-mn2,sat=dl/255/(1-Math.abs(2*l-1)||1),hu=0;
-        if(l<.15){res("đen");return}
-        if(l>.88){res("trắng");return}
-        if(sat<.18){res(l<.4?"đen":l>.75?"trắng":"xám");return}
-        if(dl>0){if(mx2===r)hu=((g-b)/dl+6)%6;else if(mx2===g)hu=(b-r)/dl+2;else hu=(r-g)/dl+4;hu*=60}
-        res(hu<15||hu>=345?(l>.7?"hồng":"đỏ"):hu<40?"cam":hu<70?"vàng":hu<165?"xanh lá":hu<255?"xanh dương":hu<300?"tím":"hồng");
+        var d=x.getImageData(0,0,24,24).data,sr=0,sg=0,sb=0,sn=0,ar=0,ag=0,ab=0,an=0,tot=d.length/4;
+        for(var i=0;i<d.length;i+=4){
+          var R=d[i],G=d[i+1],B=d[i+2],mx=Math.max(R,G,B),mn=Math.min(R,G,B),l=(mx+mn)/510;
+          ar+=R;ag+=G;ab+=B;an++;
+          if(mx-mn>55&&l>.12&&l<.9){sr+=R;sg+=G;sb+=B;sn++}
+        }
+        if(sn>=tot*.12){
+          var r=sr/sn,g=sg/sn,b=sb/sn,mx2=Math.max(r,g,b),dl=mx2-Math.min(r,g,b),hu=0;
+          if(mx2===r)hu=((g-b)/dl+6)%6;else if(mx2===g)hu=(b-r)/dl+2;else hu=(r-g)/dl+4;hu*=60;
+          var l2=(mx2+Math.min(r,g,b))/510;
+          res(hu<15||hu>=345?(l2>.7?"hồng":"đỏ"):hu<40?"cam":hu<70?"vàng":hu<165?"xanh lá":hu<255?"xanh dương":hu<300?"tím":"hồng");
+        }else{
+          var L=(ar+ag+ab)/an/3;res(L<70?"đen":L>175?"trắng":"xám");
+        }
       }catch(e){res("")}
     };
     im.onerror=function(){res("")};
     im.src=dataUrl;
   });
 }
+function aiCrop(dataUrl){
+  return new Promise(function(res){
+    var im=new Image();
+    im.onload=function(){try{var c=document.createElement("canvas"),w=im.width*.75,hh=im.height*.75;c.width=Math.round(w);c.height=Math.round(hh);c.getContext("2d").drawImage(im,(im.width-w)/2,(im.height-hh)/2,w,hh,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.9))}catch(e){res(dataUrl)}};
+    im.onerror=function(){res(dataUrl)};im.src=dataUrl;
+  });
+}
+async function aiEmbed(dataUrl){
+  var blob=await (await fetch(dataUrl)).blob(),img=await AI.RawImage.fromBlob(blob);
+  var o=await AI.vm(await AI.proc(img)),e=o.image_embeds,dim=e.dims[1],v=Array.prototype.slice.call(e.data,0,dim),n=0,j;
+  for(j=0;j<dim;j++)n+=v[j]*v[j];n=Math.sqrt(n)||1;
+  return v.map(function(x){return x/n});
+}
 async function aiRecognize(dataUrl){
   var F=window.BINHCHON_FAKE_AI;
   if(F)return F.recognize(dataUrl);
-  var blob=await (await fetch(dataUrl)).blob(),img=await AI.RawImage.fromBlob(blob);
-  var inp=await AI.proc(img),o=await AI.vm(inp),e=o.image_embeds,dim=e.dims[1],v=Array.prototype.slice.call(e.data,0,dim),n=0,j;
+  var v1=await aiEmbed(dataUrl),v2=await aiEmbed(await aiCrop(dataUrl)),dim=v1.length,j;
+  var v=v1.map(function(x,i){return x+v2[i]}),n=0;
   for(j=0;j<dim;j++)n+=v[j]*v[j];n=Math.sqrt(n)||1;
   var N=AI.emb.length/dim,L=new Array(N);
   for(var i=0;i<N;i++){var s=0,off=i*dim;for(j=0;j<dim;j++)s+=v[j]*AI.emb[off+j];L[i]=s/n*100}
   var P=aiSoftmax(L),fb=0,nT=BC_KB.teams.length*3;
   for(i=0;i<nT+2;i++)fb+=P[i];
-  var color=(fb>=0.5)?await aiColor(dataUrl):"";
+  var color=(fb>=0.4)?await aiColor(dataUrl):"";
   return aiDecide(P,color);
 }
-window.BC_TEST={aiDecide:aiDecide,aiColor:aiColor,aiPrompts:aiPrompts,KB:BC_KB};
+window.BC_TEST={aiDecide:aiDecide,aiColor:aiColor,aiPrompts:aiPrompts,KB:BC_KB,aiLoad:aiLoad,aiRecognize:aiRecognize};
 function afterImages(){render();if(aiReady()&&aiAuto())aiName()}
 async function aiName(){
   var d=S.draft;if(!d||S.view!=="create"||S.aiBusy)return;
@@ -463,8 +493,10 @@ async function aiName(){
     await aiLoad();
     for(var i=0;i<targets.length;i++){
       var o=targets[i],nm=null;
-      try{nm=await aiRecognize(o.img)}catch(e){nm=null}
-      nm=nm?cleanName(String(nm)).slice(0,80):"";
+      var rr=null;try{rr=await aiRecognize(o.img)}catch(e){rr=null}
+      if(typeof rr==="string")rr={name:rr,alts:[]};
+      if(rr&&rr.alts&&rr.alts.length)o.alts=rr.alts;
+      nm=rr&&rr.name?cleanName(String(rr.name)).slice(0,80):"";
       if(!nm||cleanName(o.label)){if(!nm)unknown++;continue}
       var used=d.opts.map(function(x){return cleanName(x.label).toLowerCase()}),base=nm,c=2;
       while(used.indexOf(nm.toLowerCase())>=0){nm=base+" ("+c+")";c++}
@@ -558,9 +590,11 @@ function viewCreate(){
       onclick:function(){
       pickFiles(false).then(function(fs){if(!fs[0])return;return compressImage(fs[0]).then(function(u){o.img=u;afterImages()})}).catch(function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
     }},o.img?h("img",{src:o.img,alt:""}):"+ ảnh");
-    return h("div",{class:"orow"},th,
+    var alts=(o.alts||[]).filter(function(a){return a&&a!==o.label});
+    return h("div",{class:"oitem"},h("div",{class:"orow"},th,
       h("input",{type:"text",maxlength:80,placeholder:"Lựa chọn "+(i+1),value:o.label,"aria-label":"Tên lựa chọn "+(i+1),oninput:function(e){o.label=e.target.value}}),
-      h("button",{class:"x",type:"button",title:"Xóa",disabled:d.opts.length<=2,onclick:function(){d.opts.splice(i,1);render()},text:"×"}));
+      h("button",{class:"x",type:"button",title:"Xóa",disabled:d.opts.length<=2,onclick:function(){d.opts.splice(i,1);render()},text:"×"})),
+      alts.length?h("div",{class:"alts"},h("span",{text:"Gợi ý khác:"}),alts.map(function(a){return h("button",{type:"button",class:"chip",onclick:function(){o.label=a;o.alts=null;render()},text:a})})):null);
   });
   return [
     h("div",{class:"top"},h("button",{class:"brand",onclick:function(){go("#")},text:"← Trang chính"})),

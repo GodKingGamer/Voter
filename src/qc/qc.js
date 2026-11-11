@@ -38,7 +38,7 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   // ---- AI nhận diện trên máy (mô hình giả lập, không gọi mạng)
   const ai = await mk(); let apiCalls = 0;
   await ai.route(/anthropic\.com|huggingface\.co|jsdelivr\.net/, r => { apiCalls++; r.abort(); });
-  await ai.addInitScript(() => { let n = 0; window.BINHCHON_FAKE_AI = { load: async cb => { cb(40); await new Promise(r => setTimeout(r, 300)); cb(100); }, recognize: async () => 'Áo thử ' + (++n) }; });
+  await ai.addInitScript(() => { let n = 0; window.BINHCHON_FAKE_AI = { load: async cb => { cb(40); await new Promise(r => setTimeout(r, 300)); cb(100); }, recognize: async () => { n++; return { name: 'Áo thử ' + n, alts: ['Gợi ý ' + n] }; } }; });
   await ai.goto(base + '#new'); await ai.waitForSelector('#t');
   await ai.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); for (let i = 0; i < 2; i++) dt.items.add(new File([b], 'x' + i + '.png', { type: 'image/png' })); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
   await ai.waitForFunction(() => document.querySelectorAll('.thumb img').length === 2);
@@ -64,11 +64,12 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
     const { aiDecide, aiColor, aiPrompts, KB } = window.BC_TEST, T = KB.teams, O = KB.objects, nT = T.length * 3, N = nT + 2 + O.length, mk = (set) => { const P = new Array(N).fill(0.0001); for (const k in set) P[k] = set[k]; return P; };
     const ar = T.findIndex(t => t[0] === 'Arsenal'), mu = T.findIndex(t => t[0] === 'Man United'), sp = nT + 2 + O.findIndex(o => o[0] === 'Thìa');
     return [
-      aiDecide(mk({ [ar * 3 + 1]: 0.8, [ar * 3]: 0.1 }), 'đỏ'),
-      aiDecide(mk({ [mu * 3]: 0.35, [mu * 3 + 1]: 0.3, [mu * 3 + 2]: 0.3 }), 'đỏ'),
-      aiDecide(mk({ [nT]: 0.9 }), 'xanh dương'),
-      aiDecide(mk({ [sp]: 0.7 }), ''),
-      aiDecide(mk({ [sp]: 0.1, [sp + 1]: 0.1, [sp + 2]: 0.1, [sp + 3]: 0.1 }), ''),
+      aiDecide(mk({ [ar * 3 + 1]: 0.8, [ar * 3]: 0.1 }), 'đỏ').name,
+      aiDecide(mk({ [mu * 3]: 0.35, [mu * 3 + 1]: 0.3, [mu * 3 + 2]: 0.3 }), 'đỏ').name,
+      aiDecide(mk({ [nT]: 0.9 }), 'xanh dương').name,
+      aiDecide(mk({ [sp]: 0.7 }), '').name,
+      aiDecide(mk({ [sp]: 0.1, [sp + 1]: 0.1, [sp + 2]: 0.1, [sp + 3]: 0.1 }), '').name,
+      aiDecide(mk({ [ar * 3 + 1]: 0.5, [mu * 3]: 0.3, [T.findIndex(t => t[0] === 'Chelsea') * 3]: 0.1 }), '').alts.length,
       T.length, O.length, aiPrompts().length
     ];
   });
@@ -77,11 +78,14 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   ok(dec[2] === 'Áo bóng đá màu xanh dương', 'áo bóng đá lạ: ghi chung + màu: ' + dec[2]);
   ok(dec[3] === 'Thìa', 'nhận ra đồ vật: ' + dec[3]);
   ok(dec[4] === null, 'không chắc thì để trống: ' + dec[4]);
-  ok(dec[5] >= 60 && dec[6] >= 150 && dec[7] === dec[5] * 3 + 2 + dec[6], 'kho kiến thức: ' + dec[5] + ' đội, ' + dec[6] + ' đồ vật');
+  ok(dec[5] === 2, 'gợi ý khác: ' + dec[5] + ' lựa chọn');
+  ok(dec[6] >= 60 && dec[7] >= 150 && dec[8] === dec[6] * 3 + 2 + dec[7], 'kho kiến thức: ' + dec[6] + ' đội, ' + dec[7] + ' đồ vật');
   const col = await ai.evaluate(async () => { const c = document.createElement('canvas'); c.width = c.height = 40; const x = c.getContext('2d'); const out = []; for (const f of ['#d62020', '#1a3fd0', '#f2d21b', '#222222', '#20a040']) { x.fillStyle = f; x.fillRect(0, 0, 40, 40); out.push(await window.BC_TEST.aiColor(c.toDataURL())); } return out; });
   ok(col.join(',') === 'đỏ,xanh dương,vàng,đen,xanh lá', 'đặt tên màu: ' + col.join(','));
   await ai.waitForSelector('#aiclear');
   await noOverflow(ai, 'form tạo (cài đặt AI)'); await ai.screenshot({ path: shots + '/07-ai.png', fullPage: true });
+  ok(await ai.locator('.chip').count() >= 1, 'hiện nút gợi ý khác');
+  await ai.locator('.chip').first().click(); ok((await ai.locator('.orow input').nth(0).inputValue()).startsWith('Gợi ý'), 'bấm gợi ý thì đổi tên');
   await ai.click('#aiclear'); await ai.waitForSelector('.notice.ok');
   ok(await ai.evaluate(() => JSON.parse(localStorage.getItem('bc_ai_ready'))) === false, 'xóa bộ nhớ AI');
 
