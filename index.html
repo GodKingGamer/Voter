@@ -317,7 +317,7 @@ function viewHome(){
 function footer(){
   return h("footer",{class:"ver"},
     S.installEv?h("button",{class:"linkbtn",type:"button",onclick:function(){S.installEv.prompt();S.installEv=null;render()},text:"Cài app lên điện thoại"}):null,
-    h("p",{text:"Bình chọn nhanh · Bản 09 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
+    h("p",{text:"Bình chọn nhanh · Bản 10 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
 }
 
 /* =============== Tạo poll =============== */
@@ -1202,7 +1202,7 @@ function viewPoll(){
     tabBtn("vote","Bình chọn"),tabBtn("res","Kết quả",t.voters),own?tabBtn("manage","Quản lý"):null);
   var body=S.tab==="res"?viewResults(t):S.tab==="manage"&&own?viewManage(t):viewVote();
   var children=[
-    h("div",{class:"top"},h("button",{class:"brand",onclick:function(){go("#")},text:"Bình chọn nhanh"}),h("span",{class:"badge"+(p.closed?" closed":""),text:p.closed?"Đã đóng":"Đang mở"})),
+    h("div",{class:"top"},h("button",{class:"brand",onclick:function(){go("#")},text:"Bình chọn nhanh"}),h("span",{style:"display:flex;gap:10px;align-items:center"},own?h("button",{class:"linkbtn",type:"button",id:"topedit",onclick:function(){S.tab="manage";openEdit()},text:"✎ Chỉnh sửa"}):null,h("span",{class:"badge"+(p.closed?" closed":""),text:p.closed?"Đã đóng":"Đang mở"}))),
     h("h1",{text:p.title}),p.desc?h("p",{class:"sub",text:p.desc}):null,
     S.msg?h("div",{class:"notice "+S.msg.t,text:S.msg.m}):null,
     tabs,body,footer()];

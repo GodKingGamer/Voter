@@ -128,9 +128,13 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   const lbls = await o.locator('.orow input').evaluateAll(els => els.map(e => e.value));
   ok(lbls[0] === 'Mẫu A đổi tên' && lbls[lbls.length - 1] === 'Lựa chọn mới thêm' && lbls.length === imgs.length + 2, 'mở lại form sửa: tên mới và lựa chọn mới đã được lưu');
   await o.click('#ecancel'); await o.waitForSelector('#editbtn');
+  await o.click('.tab >> nth=1'); ok(await o.locator('#topedit').count() === 1, 'chủ poll thấy nút Chỉnh sửa ở mọi tab');
+  await o.click('#topedit'); await o.waitForSelector('#esave'); ok(true, 'nút Chỉnh sửa trên đầu trang mở form sửa'); await o.click('#ecancel'); await o.waitForSelector('#editbtn');
 
+  // (người vote không thấy nút sửa: kiểm tra ở dưới)
   // ---- Người vote 1
   const v1 = await mk(); await v1.goto(url); await v1.waitForSelector('#nm');
+  ok(await v1.locator('#topedit').count() === 0, 'người vote không thấy nút Chỉnh sửa');
   await v1.fill('#nm', 'Nguyễn Văn An'); await v1.click('#go'); await v1.waitForSelector('.opt');
   await noOverflow(v1, 'trang vote'); await v1.screenshot({ path: shots + '/04-vote.png' });
   const cards = v1.locator('.opt');
