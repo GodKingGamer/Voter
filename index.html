@@ -75,6 +75,7 @@ textarea{resize:vertical;min-height:64px}
 .opt[aria-pressed=true] .chk{background:var(--accent);border-color:var(--accent)}
 .opt[aria-pressed=true] .chk::after{content:"✓"}
 .zoom{position:absolute;top:8px;left:8px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(0,0,0,.5);color:#fff;font-size:15px;cursor:zoom-in;display:grid;place-items:center;padding:0}
+.aipg{height:8px;border-radius:99px;background:var(--line);overflow:hidden;margin:8px 0}.aipg i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
 .bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom));z-index:10}
 .bar .in{max-width:880px;margin:0 auto;display:flex;align-items:center;gap:12px}
 .bar .cnt{flex:1;font-weight:600}
@@ -308,7 +309,7 @@ function viewHome(){
 function footer(){
   return h("footer",{class:"ver"},
     S.installEv?h("button",{class:"linkbtn",type:"button",onclick:function(){S.installEv.prompt();S.installEv=null;render()},text:"Cài app lên điện thoại"}):null,
-    h("p",{text:"Bình chọn nhanh · Bản 04 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
+    h("p",{text:"Bình chọn nhanh · Bản 05 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
 }
 
 /* =============== Tạo poll =============== */
@@ -331,52 +332,288 @@ function compressImage(file){
     im.src=url;
   });
 }
-var AI_MODEL="claude-haiku-5-5";
-function aiKey(){return lsGet("bc_key","")}
+/* =============== AI nhận diện ảnh chạy trên máy (CLIP), không cần API =============== */
+/* Kho kiến thức cho AI nhận diện ảnh chạy trên máy (CLIP). Sửa/thêm ở đây rồi build lại.
+   teams: [tên Việt, tên Anh, màu áo sân nhà, màu áo sân khách, màu áo thứ ba]
+   objects: [tên Việt, mô tả tiếng Anh cho AI] */
+var BC_KB = {
+teams: [
+/* ---- Đội tuyển quốc gia ---- */
+["Argentina","Argentina national team","light blue and white vertical stripes","dark navy blue or purple","white with light blue details"],
+["Brazil","Brazil national team","yellow with green trim","blue or white","dark navy or black"],
+["Pháp","France national team","dark navy blue","white","any alternative colour"],
+["Anh","England national team","white","red or navy blue","any alternative colour"],
+["Đức","Germany national team","white and black","black, red or pink","any alternative colour"],
+["Tây Ban Nha","Spain national team","red","white or navy blue","any alternative colour"],
+["Bồ Đào Nha","Portugal national team","dark red with green","cream, white or navy blue","any alternative colour"],
+["Hà Lan","Netherlands national team","orange","dark navy blue","any alternative colour"],
+["Bỉ","Belgium national team","red","white or black","any alternative colour"],
+["Ý","Italy national team","azure blue","white","dark green or black"],
+["Croatia","Croatia national team","red and white checkered","navy blue","any alternative colour"],
+["Uruguay","Uruguay national team","sky blue","black or white","any alternative colour"],
+["Colombia","Colombia national team","yellow","dark blue or red","any alternative colour"],
+["Mexico","Mexico national team","green","white or black","any alternative colour"],
+["Mỹ","United States national team","white","navy blue","any alternative colour"],
+["Nhật Bản","Japan national team","blue","white or black","any alternative colour"],
+["Hàn Quốc","South Korea national team","red","white or navy blue","any alternative colour"],
+["Morocco","Morocco national team","red","white or green","any alternative colour"],
+["Senegal","Senegal national team","white or green","yellow","any alternative colour"],
+["Nigeria","Nigeria national team","green","white or black","any alternative colour"],
+["Việt Nam","Vietnam national team","red with yellow","yellow or white","any alternative colour"],
+["Thái Lan","Thailand national team","dark blue","red or white","any alternative colour"],
+["Úc","Australia national team","yellow and green","dark green or blue","any alternative colour"],
+["Thụy Sĩ","Switzerland national team","red","white","any alternative colour"],
+["Đan Mạch","Denmark national team","red","white","any alternative colour"],
+["Ba Lan","Poland national team","white","red","any alternative colour"],
+["Thụy Điển","Sweden national team","yellow","blue","any alternative colour"],
+["Ả Rập Xê Út","Saudi Arabia national team","green and white","white","any alternative colour"],
+/* ---- Câu lạc bộ ---- */
+["Arsenal","Arsenal football club","red with white sleeves","yellow, navy or white","any alternative colour"],
+["Chelsea","Chelsea football club","royal blue","white or yellow","any alternative colour"],
+["Liverpool","Liverpool football club","red","white, green or black","any alternative colour"],
+["Man United","Manchester United football club","red","white, black or blue","any alternative colour"],
+["Man City","Manchester City football club","sky blue","maroon, white or black","any alternative colour"],
+["Tottenham","Tottenham Hotspur football club","white","navy blue","any alternative colour"],
+["Newcastle","Newcastle United football club","black and white stripes","yellow, blue or green","any alternative colour"],
+["Aston Villa","Aston Villa football club","claret and blue","white or black","any alternative colour"],
+["West Ham","West Ham United football club","claret and blue","white or black","any alternative colour"],
+["Everton","Everton football club","royal blue","white or black","any alternative colour"],
+["Leicester","Leicester City football club","royal blue","white or black","any alternative colour"],
+["Real Madrid","Real Madrid football club","all white","black, purple or navy blue","any alternative colour"],
+["Barcelona","FC Barcelona football club","blue and dark red stripes","yellow, orange or black","any alternative colour"],
+["Atlético Madrid","Atletico Madrid football club","red and white stripes","blue or navy","any alternative colour"],
+["Sevilla","Sevilla football club","white with red","black or red","any alternative colour"],
+["Bayern Munich","Bayern Munich football club","red","white, navy or black","any alternative colour"],
+["Dortmund","Borussia Dortmund football club","yellow and black","white, grey or black","any alternative colour"],
+["Leverkusen","Bayer Leverkusen football club","red and black","white or black","any alternative colour"],
+["PSG","Paris Saint-Germain football club","dark navy blue with red stripe","white, black or pink","any alternative colour"],
+["Marseille","Olympique de Marseille football club","white and sky blue","blue or black","any alternative colour"],
+["Lyon","Olympique Lyonnais football club","white with red and blue","navy or red","any alternative colour"],
+["Monaco","AS Monaco football club","red and white diagonal","white or black","any alternative colour"],
+["Juventus","Juventus football club","black and white stripes","white, pink or blue","any alternative colour"],
+["AC Milan","AC Milan football club","red and black stripes","white or black","any alternative colour"],
+["Inter Milan","Inter Milan football club","blue and black stripes","white or black","any alternative colour"],
+["Napoli","SSC Napoli football club","sky blue","white or dark blue","any alternative colour"],
+["AS Roma","AS Roma football club","maroon and orange","white or black","any alternative colour"],
+["Ajax","Ajax football club","white with a red vertical band","black or blue","any alternative colour"],
+["Benfica","Benfica football club","red","white or black","any alternative colour"],
+["Porto","FC Porto football club","blue and white stripes","white or black","any alternative colour"],
+["Sporting CP","Sporting CP football club","green and white hoops","white or black","any alternative colour"],
+["Celtic","Celtic football club","green and white hoops","black or yellow","any alternative colour"],
+["Galatasaray","Galatasaray football club","yellow and red","red or white","any alternative colour"],
+["Fenerbahçe","Fenerbahce football club","yellow and navy","black or white","any alternative colour"],
+["Al Nassr","Al Nassr football club","yellow and blue","blue or white","any alternative colour"],
+["Inter Miami","Inter Miami football club","pink","black or blue","any alternative colour"],
+["Boca Juniors","Boca Juniors football club","blue with a yellow horizontal band","yellow or white","any alternative colour"],
+["River Plate","River Plate football club","white with a red diagonal sash","black or red","any alternative colour"],
+["Flamengo","Flamengo football club","red and black hoops","white or black","any alternative colour"]
+],
+objects: [
+/* ---- Đồ dùng học tập, văn phòng ---- */
+["Bút bi","a ballpoint pen"],["Bút chì","a pencil"],["Bút dạ quang","a highlighter marker pen"],["Bút lông","a marker pen"],["Thước kẻ","a ruler"],
+["Tẩy","an eraser"],["Gọt bút chì","a pencil sharpener"],["Kéo","a pair of scissors"],["Hồ dán","a glue stick"],["Băng dính","a roll of adhesive tape"],
+["Sổ tay","a notebook"],["Quyển sách","a book"],["Hộp bút","a pencil case"],["Cặp sách","a school backpack"],["Máy tính cầm tay","a calculator"],
+["Kẹp giấy","paper clips"],["Ghim bấm","a stapler"],["Compa","a drawing compass"],["Bộ bút màu","a set of colored pencils"],["Máy tính xách tay","a laptop computer"],
+/* ---- Đồ ăn uống, bếp ---- */
+["Thìa","a spoon"],["Dĩa","a fork"],["Dao","a kitchen knife"],["Đũa","a pair of chopsticks"],["Bát","a bowl"],
+["Đĩa","a plate"],["Cốc","a mug"],["Ly thủy tinh","a drinking glass"],["Chai nước","a plastic water bottle"],["Bình giữ nhiệt","a thermos tumbler"],
+["Nồi","a cooking pot"],["Chảo","a frying pan"],["Ấm đun nước","a kettle"],["Hộp cơm","a lunch box"],["Thớt","a cutting board"],
+["Muôi","a ladle"],["Bánh mì","bread"],["Bánh ngọt","a cake"],["Pizza","a pizza"],["Bát phở","a bowl of noodle soup"],
+["Cơm","a plate of rice"],["Cà phê","a cup of coffee"],["Trà","a cup of tea"],["Trà sữa","a bubble tea"],["Kem","an ice cream"],
+["Kẹo","candies"],["Sô cô la","a chocolate bar"],["Táo","an apple"],["Chuối","a banana"],["Cam","an orange fruit"],
+["Nho","grapes"],["Dưa hấu","a watermelon"],["Xoài","a mango"],["Dứa","a pineapple"],["Dâu tây","strawberries"],
+["Cà chua","a tomato"],["Cà rốt","a carrot"],["Rau xanh","green vegetables"],["Trứng","eggs"],["Sữa","a carton of milk"],
+/* ---- Đồ điện tử ---- */
+["Điện thoại","a smartphone"],["Tai nghe","headphones"],["Sạc điện thoại","a phone charger"],["Bàn phím","a computer keyboard"],["Chuột máy tính","a computer mouse"],
+["Màn hình","a computer monitor"],["Máy ảnh","a camera"],["Loa","a speaker"],["Đồng hồ thông minh","a smartwatch"],["Máy tính bảng","a tablet computer"],
+["Điều khiển từ xa","a remote control"],["Pin","batteries"],["Quạt","an electric fan"],["Bóng đèn","a light bulb"],["Đèn bàn","a desk lamp"],
+/* ---- Quần áo, phụ kiện ---- */
+["Áo thun","a t-shirt"],["Áo sơ mi","a dress shirt"],["Áo khoác","a jacket"],["Quần jean","jeans"],["Quần short","shorts"],
+["Váy","a dress"],["Giày thể thao","sneakers"],["Dép","sandals"],["Giày da","leather shoes"],["Tất","socks"],
+["Mũ lưỡi trai","a baseball cap"],["Kính mắt","eyeglasses"],["Kính râm","sunglasses"],["Đồng hồ đeo tay","a wristwatch"],["Ví","a wallet"],
+["Túi xách","a handbag"],["Ba lô","a backpack"],["Thắt lưng","a belt"],["Khăn quàng","a scarf"],["Găng tay","gloves"],
+["Ô","an umbrella"],["Nhẫn","a ring"],["Vòng cổ","a necklace"],["Chìa khóa","a set of keys"],["Khẩu trang","a face mask"],
+/* ---- Đồ gia dụng, nội thất ---- */
+["Ghế","a chair"],["Bàn","a table"],["Sofa","a sofa"],["Giường","a bed"],["Gối","a pillow"],
+["Chăn","a blanket"],["Gương","a mirror"],["Bình hoa","a vase"],["Chậu cây","a potted plant"],["Hoa","flowers"],
+["Đồng hồ treo tường","a wall clock"],["Khóa","a padlock"],["Tủ","a cabinet"],["Kệ sách","a bookshelf"],["Thùng rác","a trash can"],
+["Bàn chải đánh răng","a toothbrush"],["Xà phòng","a bar of soap"],["Khăn tắm","a towel"],["Lược","a hairbrush"],["Nước hoa","a perfume bottle"],
+/* ---- Thể thao, đồ chơi ---- */
+["Quả bóng đá","a soccer ball"],["Quả bóng rổ","a basketball"],["Vợt cầu lông","a badminton racket"],["Quả cầu lông","a badminton shuttlecock"],["Vợt tennis","a tennis racket"],
+["Giày đá bóng","football boots"],["Găng tay thủ môn","goalkeeper gloves"],["Cúp","a trophy cup"],["Huy chương","a medal"],["Xe đạp","a bicycle"],
+["Gấu bông","a teddy bear"],["Búp bê","a doll"],["Mô hình xe","a toy car"],["Lego","lego bricks"],["Bộ cờ","a board game"],
+["Bài","playing cards"],["Guitar","a guitar"],["Đàn piano","a piano"],["Trống","a drum"],["Kèn","a trumpet"],
+/* ---- Phương tiện, động vật, khác ---- */
+["Xe máy","a motorcycle"],["Ô tô","a car"],["Xe buýt","a bus"],["Máy bay","an airplane"],["Mèo","a cat"],
+["Chó","a dog"],["Chim","a bird"],["Cá","a fish"],["Cây","a tree"],["Núi","a mountain landscape"],
+["Biển","a beach"],["Tòa nhà","a building"],["Tiền","banknotes money"],["Thẻ","a plastic card"],["Hộp quà","a gift box"]
+]
+};
+
+var AI_MODEL="Xenova/clip-vit-base-patch32",AI_LIB="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
+var AI_KIT=["áo sân nhà","áo sân khách","áo thứ ba"],AI_KW=["home kit","away kit","third kit"];
+var AI={p:null,tok:null,tm:null,proc:null,vm:null,emb:null,RawImage:null,pct:0,mb:0,err:""};
+function aiReady(){return lsGet("bc_ai_ready",false)===true}
 function aiAuto(){return lsGet("bc_ai_auto",true)!==false}
-function afterImages(){render();if(aiKey()&&aiAuto())aiName()}
+function aiPrompts(){
+  var a=[];
+  BC_KB.teams.forEach(function(t){for(var k=0;k<3;k++)a.push("a photo of a "+t[1]+" football shirt, "+AI_KW[k]+", "+t[2+k])});
+  a.push("a photo of a football jersey","a photo of a soccer shirt");
+  BC_KB.objects.forEach(function(o){a.push("a photo of "+o[1])});
+  return a;
+}
+function aiHash(s){var x=5381;for(var i=0;i<s.length;i++)x=((x<<5)+x+s.charCodeAt(i))|0;return (x>>>0).toString(36)+s.length}
+function aiProg(){
+  var b=$("#aibar"),t=$("#aiprogtxt");
+  if(b)b.style.width=Math.round(AI.pct)+"%";
+  if(t)t.textContent=AI.pct>=99?"Đang chuẩn bị bộ nhớ kiến thức…":"Đang tải "+AI.mb.toFixed(0)+" MB · "+Math.round(AI.pct)+"%";
+}
+function aiLoad(){
+  if(AI.p)return AI.p;
+  AI.err="";
+  AI.p=(async function(){
+    var F=window.BINHCHON_FAKE_AI;
+    if(F){await F.load(function(p){AI.pct=p;AI.mb=p*1.5;aiProg()});lsSet("bc_ai_ready",true);return}
+    var lib=await import(AI_LIB);
+    lib.env.allowLocalModels=false;
+    var files={};
+    function cb(d){
+      if(!d||!d.file)return;
+      if(d.status==="progress"||d.status==="done"){
+        files[d.file]={l:d.status==="done"?(files[d.file]&&files[d.file].t||d.loaded||0):d.loaded,t:d.total||(files[d.file]&&files[d.file].t)||0};
+        var L=0,T=0;for(var k in files){L+=files[k].l;T+=files[k].t}
+        AI.mb=L/1048576;AI.pct=T?Math.min(98,L/T*100):0;aiProg();
+      }
+    }
+    AI.tok=await lib.AutoTokenizer.from_pretrained(AI_MODEL);
+    AI.tm=await lib.CLIPTextModelWithProjection.from_pretrained(AI_MODEL,{progress_callback:cb});
+    AI.proc=await lib.AutoProcessor.from_pretrained(AI_MODEL);
+    AI.vm=await lib.CLIPVisionModelWithProjection.from_pretrained(AI_MODEL,{progress_callback:cb});
+    AI.RawImage=lib.RawImage;
+    var prompts=aiPrompts(),key="https://bc.local/emb-"+aiHash(prompts.join("|")),cache=null,buf=null;
+    try{cache=await caches.open("bc-ai-v1");var hit=await cache.match(key);if(hit)buf=new Float32Array(await hit.arrayBuffer())}catch(e){}
+    if(!buf||buf.length%prompts.length){
+      var dim=0,all=[];
+      for(var i=0;i<prompts.length;i+=32){
+        var inp=AI.tok(prompts.slice(i,i+32),{padding:true,truncation:true});
+        var out=await AI.tm(inp),te=out.text_embeds;dim=te.dims[1];
+        for(var r=0;r<te.dims[0];r++){
+          var v=Array.prototype.slice.call(te.data,r*dim,(r+1)*dim),n=0,j;
+          for(j=0;j<dim;j++)n+=v[j]*v[j];n=Math.sqrt(n)||1;
+          for(j=0;j<dim;j++)all.push(v[j]/n);
+        }
+      }
+      buf=new Float32Array(all);
+      try{if(cache)await cache.put(key,new Response(buf.buffer.slice(0)))}catch(e){}
+    }
+    AI.emb=buf;AI.pct=100;
+    lsSet("bc_ai_ready",true);
+  })().catch(function(e){AI.p=null;AI.err=(e&&e.message)||"Không tải được AI";throw e});
+  return AI.p;
+}
+function aiSoftmax(L){var m=-1e9,i,s=0,P=new Array(L.length);for(i=0;i<L.length;i++)if(L[i]>m)m=L[i];for(i=0;i<L.length;i++){P[i]=Math.exp(L[i]-m);s+=P[i]}for(i=0;i<L.length;i++)P[i]/=s;return P}
+function aiDecide(P,color){
+  var T=BC_KB.teams,O=BC_KB.objects,nT=T.length*3,fb=0,i;
+  for(i=0;i<nT+2;i++)fb+=P[i];
+  if(fb>=0.5){
+    var bt=-1,bp=0;
+    for(i=0;i<T.length;i++){var s=P[i*3]+P[i*3+1]+P[i*3+2];if(s>bp){bp=s;bt=i}}
+    if(bt>=0&&bp>=0.25&&bp/fb>=0.4){
+      var k=0,ks=P[bt*3];
+      if(P[bt*3+1]>ks){k=1;ks=P[bt*3+1]}
+      if(P[bt*3+2]>ks){k=2;ks=P[bt*3+2]}
+      return ks/bp>=0.5?T[bt][0]+" – "+AI_KIT[k]:"Áo đấu "+T[bt][0];
+    }
+    return "Áo bóng đá"+(color?" màu "+color:"");
+  }
+  var bo=-1,op=0;
+  for(i=0;i<O.length;i++){var q=P[nT+2+i];if(q>op){op=q;bo=i}}
+  return bo>=0&&op>=0.25?O[bo][0]:null;
+}
+function aiColor(dataUrl){
+  return new Promise(function(res){
+    var im=new Image();
+    im.onload=function(){
+      try{
+        var c=document.createElement("canvas");c.width=c.height=24;var x=c.getContext("2d");
+        x.drawImage(im,im.width*.2,im.height*.2,im.width*.6,im.height*.6,0,0,24,24);
+        var d=x.getImageData(0,0,24,24).data,r=0,g=0,b=0,n=0;
+        for(var i=0;i<d.length;i+=4){var mx=Math.max(d[i],d[i+1],d[i+2]),mn=Math.min(d[i],d[i+1],d[i+2]);if(mn>225&&mx-mn<20)continue;r+=d[i];g+=d[i+1];b+=d[i+2];n++}
+        if(!n){res("trắng");return}
+        r/=n;g/=n;b/=n;
+        var mx2=Math.max(r,g,b),mn2=Math.min(r,g,b),l=(mx2+mn2)/510,dl=mx2-mn2,sat=dl/255/(1-Math.abs(2*l-1)||1),hu=0;
+        if(l<.15){res("đen");return}
+        if(l>.88){res("trắng");return}
+        if(sat<.18){res(l<.4?"đen":l>.75?"trắng":"xám");return}
+        if(dl>0){if(mx2===r)hu=((g-b)/dl+6)%6;else if(mx2===g)hu=(b-r)/dl+2;else hu=(r-g)/dl+4;hu*=60}
+        res(hu<15||hu>=345?(l>.7?"hồng":"đỏ"):hu<40?"cam":hu<70?"vàng":hu<165?"xanh lá":hu<255?"xanh dương":hu<300?"tím":"hồng");
+      }catch(e){res("")}
+    };
+    im.onerror=function(){res("")};
+    im.src=dataUrl;
+  });
+}
+async function aiRecognize(dataUrl){
+  var F=window.BINHCHON_FAKE_AI;
+  if(F)return F.recognize(dataUrl);
+  var blob=await (await fetch(dataUrl)).blob(),img=await AI.RawImage.fromBlob(blob);
+  var inp=await AI.proc(img),o=await AI.vm(inp),e=o.image_embeds,dim=e.dims[1],v=Array.prototype.slice.call(e.data,0,dim),n=0,j;
+  for(j=0;j<dim;j++)n+=v[j]*v[j];n=Math.sqrt(n)||1;
+  var N=AI.emb.length/dim,L=new Array(N);
+  for(var i=0;i<N;i++){var s=0,off=i*dim;for(j=0;j<dim;j++)s+=v[j]*AI.emb[off+j];L[i]=s/n*100}
+  var P=aiSoftmax(L),fb=0,nT=BC_KB.teams.length*3;
+  for(i=0;i<nT+2;i++)fb+=P[i];
+  var color=(fb>=0.5)?await aiColor(dataUrl):"";
+  return aiDecide(P,color);
+}
+window.BC_TEST={aiDecide:aiDecide,aiColor:aiColor,aiPrompts:aiPrompts,KB:BC_KB};
+function afterImages(){render();if(aiReady()&&aiAuto())aiName()}
 async function aiName(){
   var d=S.draft;if(!d||S.view!=="create"||S.aiBusy)return;
-  if(!aiKey()){S.aiPanel=true;S.msg={t:"warn",m:"Hãy dán API key để dùng AI đặt tên."};render();return}
+  if(!aiReady()){S.aiPanel=true;S.msg={t:"warn",m:"Hãy bấm “Tải và dùng AI” một lần để bật AI nhận diện."};render();return}
   var targets=d.opts.filter(function(o){return o.img&&!cleanName(o.label)});
   if(!targets.length){S.msg={t:"ok",m:"Mọi ảnh đã có tên."};render();return}
   S.aiBusy=true;S.msg=null;render();
-  var content=[{type:"text",text:"Dưới đây là "+targets.length+" ảnh, đánh số từ 1. Với mỗi ảnh hãy gọi tên ngắn gọn bằng tiếng Việt (tối đa 8 từ) cho vật chính trong ảnh. Nếu các ảnh cùng loại, hãy thêm đặc điểm nhìn thấy để phân biệt (màu, kiểu, thương hiệu, đội bóng...). Chỉ trả về JSON dạng {\"names\":[\"tên ảnh 1\",\"tên ảnh 2\"]} đúng thứ tự, không giải thích."}];
-  targets.forEach(function(o,i){
-    var m=/^data:(image\/[a-z+.-]+);base64,(.*)$/.exec(o.img);if(!m)return;
-    content.push({type:"text",text:"Ảnh "+(i+1)+":"});content.push({type:"image",source:{type:"base64",media_type:m[1],data:m[2]}});
-  });
-  var done=0;
+  var done=0,unknown=0;
   try{
-    var r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","x-api-key":aiKey(),"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:AI_MODEL,max_tokens:800,messages:[{role:"user",content:content}]})});
-    var j=await r.json().catch(function(){return {}});
-    if(!r.ok){
-      var em=(j&&j.error&&j.error.message)||"";
-      S.msg={t:"err",m:r.status===401?"API key không đúng hoặc đã hết hiệu lực. Mở “Cài đặt AI” để dán key mới.":r.status===429?"AI đang bị giới hạn tốc độ, hãy thử lại sau ít phút.":/credit|billing/i.test(em)?"Tài khoản API chưa có credit. Nạp credit ở console.anthropic.com rồi thử lại.":"AI báo lỗi ("+r.status+"). "+em.slice(0,120)};
-    }else{
-      var txt=(j.content||[]).map(function(c){return c.text||""}).join(""),mm=/\{[\s\S]*\}/.exec(txt),names=JSON.parse(mm[0]).names||[];
-      targets.forEach(function(o,i){if(names[i]&&!cleanName(o.label)){o.label=cleanName(String(names[i])).slice(0,80);done++}});
-      S.msg=done?{t:"ok",m:"AI đã đặt tên cho "+done+" ảnh. Bạn có thể sửa lại nếu cần."}:{t:"warn",m:"AI không trả về tên nào, hãy thử lại."};
+    await aiLoad();
+    for(var i=0;i<targets.length;i++){
+      var o=targets[i],nm=null;
+      try{nm=await aiRecognize(o.img)}catch(e){nm=null}
+      nm=nm?cleanName(String(nm)).slice(0,80):"";
+      if(!nm||cleanName(o.label)){if(!nm)unknown++;continue}
+      var used=d.opts.map(function(x){return cleanName(x.label).toLowerCase()}),base=nm,c=2;
+      while(used.indexOf(nm.toLowerCase())>=0){nm=base+" ("+c+")";c++}
+      o.label=nm;done++;
     }
-  }catch(e){S.msg={t:"err",m:"Không kết nối được tới AI hoặc câu trả lời không đọc được. Kiểm tra mạng rồi thử lại."}}
+    S.msg=done?{t:"ok",m:"AI đã đặt tên cho "+done+" ảnh"+(unknown?", "+unknown+" ảnh chưa nhận ra":"")+". Đây là gợi ý, bạn có thể sửa lại."}:{t:"warn",m:"AI chưa nhận ra ảnh nào. Bạn có thể tự gõ tên."};
+  }catch(e){S.msg={t:"err",m:"Không tải hoặc chạy được AI: "+(AI.err||"kiểm tra mạng rồi thử lại")+"."}}
   S.aiBusy=false;render();
 }
 function aiPanel(){
-  var has=!!aiKey();
+  var ready=aiReady(),loading=!!AI.p&&!ready&&!AI.err;
   return h("div",{class:"notice",style:"margin-top:12px"},
-    h("b",{text:"AI đặt tên ảnh (Claude)"}),
-    h("p",{class:"sub",style:"font-size:13px;margin:6px 0",text:"API key giống một “chìa khóa” để app nhờ Claude xem ảnh giúp bạn. Lấy ở console.anthropic.com → API keys (tính phí theo lượt dùng, vài trăm đồng mỗi ảnh). Key chỉ lưu trong trình duyệt này và chỉ gửi tới api.anthropic.com. Ảnh được gửi cho Claude để nhận diện."}),
-    h("a",{class:"linkbtn",href:"https://console.anthropic.com/settings/keys",target:"_blank",rel:"noopener",text:"Mở trang lấy key"}),
-    h("input",{type:"password",id:"aikey",autocomplete:"off","aria-label":"API key",placeholder:has?"Đã lưu key (dán key mới để thay)":"sk-ant-..."}),
-    h("label",{class:"chk-row"},h("input",{type:"checkbox",checked:aiAuto(),onchange:function(e){lsSet("bc_ai_auto",e.target.checked)}}),h("span",{text:"Tự đặt tên ngay khi thêm ảnh"})),
-    h("div",{class:"row2"},
-      h("button",{class:"btn sm",type:"button",id:"aisave",onclick:function(){
-        var v=($("#aikey").value||"").trim();
-        if(!/^sk-ant-/.test(v)){S.msg={t:"warn",m:"Key phải bắt đầu bằng sk-ant-"};render();return}
-        lsSet("bc_key",v);S.aiPanel=false;S.msg={t:"ok",m:"Đã lưu key trong trình duyệt này."};render();
-        if(S.draft&&S.draft.opts.some(function(o){return o.img&&!cleanName(o.label)}))aiName();
-      },text:"Lưu key"}),
-      has?h("button",{class:"btn ghost sm",type:"button",onclick:function(){try{localStorage.removeItem("bc_key")}catch(e){}S.msg={t:"ok",m:"Đã xóa key khỏi trình duyệt."};render()},text:"Xóa key"}):null));
+    h("b",{text:"AI nhận diện ảnh (chạy ngay trên máy bạn, không cần API)"}),
+    h("p",{class:"sub",style:"font-size:13px;margin:6px 0",text:"AI biết "+BC_KB.teams.length+" đội bóng (áo sân nhà, sân khách, áo thứ ba) và "+BC_KB.objects.length+" đồ vật thông dụng như bút, thìa, thước kẻ. Miễn phí, ảnh không rời khỏi máy bạn. Lần đầu cần tải khoảng 150 MB (nên dùng Wi-Fi), lần sau dùng ngay. Kết quả chỉ là gợi ý, bạn có thể sửa tên."}),
+    ready?h("div",null,
+      h("p",{class:"sub",style:"font-size:13px;margin:4px 0",text:"✓ AI đã sẵn sàng."}),
+      h("label",{class:"chk-row"},h("input",{type:"checkbox",checked:aiAuto(),onchange:function(e){lsSet("bc_ai_auto",e.target.checked)}}),h("span",{text:"Tự đặt tên ngay khi thêm ảnh"})),
+      h("button",{class:"btn ghost sm",type:"button",id:"aiclear",onclick:aiClear,text:"Xóa bộ nhớ AI (giải phóng ~150 MB)"})):
+    loading?h("div",null,h("div",{class:"aipg"},h("i",{id:"aibar",style:"width:"+Math.round(AI.pct)+"%"})),h("p",{class:"sub",id:"aiprogtxt",style:"font-size:13px;margin:6px 0",text:"Đang tải…"})):
+    h("div",null,
+      AI.err?h("p",{style:"font-size:13px;margin:4px 0;color:var(--danger)",text:"Lỗi: "+AI.err}):null,
+      h("button",{class:"btn sm",type:"button",id:"aigo",onclick:aiStart,text:AI.err?"Thử tải lại":"Tải và dùng AI"})));
+}
+function aiStart(){
+  S.msg=null;
+  aiLoad().then(function(){S.aiPanel=true;S.msg={t:"ok",m:"AI đã sẵn sàng."};render();
+    if(S.draft&&S.draft.opts.some(function(o){return o.img&&!cleanName(o.label)}))aiName();
+  }).catch(function(){render()});
+  render();
+}
+function aiClear(){
+  var f=function(){AI.p=null;AI.emb=null;AI.tok=AI.tm=AI.proc=AI.vm=null;AI.pct=0;lsSet("bc_ai_ready",false);S.msg={t:"ok",m:"Đã xóa bộ nhớ AI."};render()};
+  try{Promise.all([caches.delete("transformers-cache"),caches.delete("bc-ai-v1")]).then(f,f)}catch(e){f()}
 }
 function isImg(f){return f&&/^image\//.test(f.type)}
 function addImageFiles(fs){
@@ -463,7 +700,7 @@ function viewCreate(){
         h("button",{class:"btn sec sm",type:"button",id:"pastebtn",disabled:d.opts.length>=12,onclick:pasteFromClipboard,text:"Dán ảnh"})),
       h("div",{class:"row2",style:"margin-top:10px"},
         h("button",{class:"btn sec sm",type:"button",id:"aibtn",disabled:S.aiBusy,onclick:aiName,text:S.aiBusy?"AI đang xem ảnh…":"✨ AI đặt tên cho ảnh"}),
-        h("button",{class:"linkbtn",type:"button",id:"aiset",onclick:function(){S.aiPanel=!S.aiPanel;render()},text:aiKey()?"Cài đặt AI (đã có key)":"Cài đặt AI"})),
+        h("button",{class:"linkbtn",type:"button",id:"aiset",onclick:function(){S.aiPanel=!S.aiPanel;render()},text:aiReady()?"Cài đặt AI (đã bật)":"Cài đặt AI"})),
       S.aiPanel?aiPanel():null,
       h("p",{class:"sub",style:"font-size:13px;margin:10px 0 0",text:"Thả ảnh vào ô ảnh nhỏ của một dòng để thay ảnh đó. Tối đa 12 lựa chọn, ảnh tự thu nhỏ. Lựa chọn chỉ có ảnh sẽ tên “Mẫu 1, Mẫu 2…”."})),
     h("div",{class:"card"},

@@ -5,14 +5,15 @@ root = pathlib.Path(__file__).resolve().parent.parent
 version = sys.argv[1] if len(sys.argv) > 1 else "Bản 00"
 CREATOR = "Hoàng Trung Đức"
 src = (root/"src/app.html").read_text(encoding="utf8")
-assert "__VERSION__" in src and "__CREATOR__" in src
+assert "__VERSION__" in src and "__CREATOR__" in src and "/*__KNOWLEDGE__*/" in src
+src = src.replace("/*__KNOWLEDGE__*/", (root/"src/knowledge.js").read_text(encoding="utf8"))
 src = src.replace("__VERSION__", version).replace("__CREATOR__", CREATOR)
 (root/"index.html").write_text(src, encoding="utf8")
 h = hashlib.sha256((src + (root/"config.js").read_text(encoding="utf8")).encode()).hexdigest()[:10]
 sw = f'''const CACHE="binhchon-{h}";
 const SHELL=["./","index.html","config.js","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/apple-touch-icon.png"];
 self.addEventListener("install",e=>{{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))}});
-self.addEventListener("activate",e=>{{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))}});
+self.addEventListener("activate",e=>{{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith("binhchon-")&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))}});
 self.addEventListener("fetch",e=>{{
   const r=e.request;if(r.method!=="GET")return;
   const u=new URL(r.url);

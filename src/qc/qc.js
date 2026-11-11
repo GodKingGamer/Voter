@@ -35,39 +35,55 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   await dz.waitForSelector('.notice.warn'); ok((await dz.locator('.notice.warn').innerText()).includes('Sao chép ảnh'), 'ảnh web không lấy được: báo cách làm khác');
   await noOverflow(dz, 'form tạo (có ảnh)');
 
-  // ---- AI đặt tên (API giả lập)
-  const ai = await mk(); let aiReq = null, aiMode = 'ok';
-  await ai.route('https://api.anthropic.com/**', async route => {
-    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
-    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
-    aiReq = { h: route.request().headers(), b: JSON.parse(route.request().postData()) };
-    if (aiMode === '401') return route.fulfill({ status: 401, headers: cors, contentType: 'application/json', body: JSON.stringify({ error: { message: 'invalid x-api-key' } }) });
-    const n = aiReq.b.messages[0].content.filter(c => c.type === 'image').length;
-    route.fulfill({ status: 200, headers: cors, contentType: 'application/json', body: JSON.stringify({ content: [{ type: 'text', text: '```json\n' + JSON.stringify({ names: Array.from({ length: n }, (_, i) => 'Áo thử ' + (i + 1)) }) + '\n```' }] }) });
-  });
+  // ---- AI nhận diện trên máy (mô hình giả lập, không gọi mạng)
+  const ai = await mk(); let apiCalls = 0;
+  await ai.route(/anthropic\.com|huggingface\.co|jsdelivr\.net/, r => { apiCalls++; r.abort(); });
+  await ai.addInitScript(() => { let n = 0; window.BINHCHON_FAKE_AI = { load: async cb => { cb(40); await new Promise(r => setTimeout(r, 300)); cb(100); }, recognize: async () => 'Áo thử ' + (++n) }; });
   await ai.goto(base + '#new'); await ai.waitForSelector('#t');
   await ai.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); for (let i = 0; i < 2; i++) dt.items.add(new File([b], 'x' + i + '.png', { type: 'image/png' })); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
   await ai.waitForFunction(() => document.querySelectorAll('.thumb img').length === 2);
-  ok(await ai.locator('.orow input').first().inputValue() === '' && aiReq === null, 'chưa có key: không tự gọi AI');
-  await ai.click('#aiset'); await ai.waitForSelector('#aikey');
-  await ai.fill('#aikey', 'sai-dinh-dang'); await ai.click('#aisave');
-  ok((await ai.locator('.notice.warn').innerText()).includes('sk-ant-'), 'từ chối key sai định dạng');
-  await ai.waitForSelector('#aikey');
-  await ai.fill('#aikey', 'sk-ant-test123'); await ai.click('#aisave');
-  await ai.waitForFunction(() => document.querySelector('.orow input').value.startsWith('Áo thử'));
-  ok(aiReq && aiReq.h['x-api-key'] === 'sk-ant-test123' && aiReq.h['anthropic-dangerous-direct-browser-access'] === 'true' && aiReq.b.model === 'claude-haiku-5-5', 'gọi đúng API: header, model');
-  ok(aiReq.b.messages[0].content.filter(c => c.type === 'image').length === 2 && /^[A-Za-z0-9+\/=]+$/.test(aiReq.b.messages[0].content.find(c => c.type === 'image').source.data.slice(0, 40)), 'gửi 2 ảnh dạng base64');
-  const names = await ai.locator('.orow input').evaluateAll(els => els.map(e => e.value));
-  ok(names[0] === 'Áo thử 1' && names[1] === 'Áo thử 2', 'AI điền tên từng ảnh theo thứ tự (tự bóc khối ```json)');
+  ok(await ai.locator('.orow input').first().inputValue() === '', 'chưa bật AI: không tự đặt tên');
+  await ai.click('#aibtn'); await ai.waitForSelector('#aigo');
+  const ptxt = await ai.locator('.notice:has(#aigo)').innerText();
+  ok(ptxt.includes('không cần API') && ptxt.includes('150 MB') && ptxt.includes('đội bóng'), 'bảng AI nói rõ: không API, 150 MB, số đội bóng');
+  ok(await ai.locator('#aikey').count() === 0, 'không còn ô nhập API key');
+  await ai.click('#aigo'); await ai.waitForSelector('#aibar');
+  await ai.waitForFunction(() => document.querySelector('#aiclear'));
+  await ai.waitForFunction(() => document.querySelectorAll('.orow input')[0].value.startsWith('Áo thử'));
+  let names = await ai.locator('.orow input').evaluateAll(els => els.map(e => e.value));
+  ok(names[0] === 'Áo thử 1' && names[1] === 'Áo thử 2', 'tải xong AI thì tự đặt tên các ảnh đang có');
+  ok(await ai.evaluate(() => JSON.parse(localStorage.getItem('bc_ai_ready'))) === true, 'nhớ AI đã bật');
   await ai.locator('.orow input').first().fill('Tên tôi sửa');
   await ai.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], 'y.png', { type: 'image/png' })); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
   await ai.waitForFunction(() => document.querySelectorAll('.orow').length === 3);
   await ai.waitForFunction(() => document.querySelectorAll('.orow input')[2].value.startsWith('Áo thử'));
   ok((await ai.locator('.orow input').first().inputValue()) === 'Tên tôi sửa', 'tên người dùng đã sửa không bị AI ghi đè');
-  aiMode = '401'; await ai.locator('.orow input').nth(2).fill('');
-  await ai.click('#aibtn'); await ai.waitForSelector('.notice.err');
-  ok((await ai.locator('.notice.err').innerText()).includes('API key không đúng'), 'báo lỗi rõ khi key sai (401)');
+  ok(apiCalls === 0, 'không gọi API/mạng nào khi AI giả lập');
+  // logic quyết định tên (dùng hàm thật với xác suất dựng sẵn)
+  const dec = await ai.evaluate(() => {
+    const { aiDecide, aiColor, aiPrompts, KB } = window.BC_TEST, T = KB.teams, O = KB.objects, nT = T.length * 3, N = nT + 2 + O.length, mk = (set) => { const P = new Array(N).fill(0.0001); for (const k in set) P[k] = set[k]; return P; };
+    const ar = T.findIndex(t => t[0] === 'Arsenal'), mu = T.findIndex(t => t[0] === 'Man United'), sp = nT + 2 + O.findIndex(o => o[0] === 'Thìa');
+    return [
+      aiDecide(mk({ [ar * 3 + 1]: 0.8, [ar * 3]: 0.1 }), 'đỏ'),
+      aiDecide(mk({ [mu * 3]: 0.35, [mu * 3 + 1]: 0.3, [mu * 3 + 2]: 0.3 }), 'đỏ'),
+      aiDecide(mk({ [nT]: 0.9 }), 'xanh dương'),
+      aiDecide(mk({ [sp]: 0.7 }), ''),
+      aiDecide(mk({ [sp]: 0.1, [sp + 1]: 0.1, [sp + 2]: 0.1, [sp + 3]: 0.1 }), ''),
+      T.length, O.length, aiPrompts().length
+    ];
+  });
+  ok(dec[0] === 'Arsenal – áo sân khách', 'nhận ra đội + áo sân khách: ' + dec[0]);
+  ok(dec[1] === 'Áo đấu Man United', 'không chắc sân nhà/khách thì chỉ ghi tên đội: ' + dec[1]);
+  ok(dec[2] === 'Áo bóng đá màu xanh dương', 'áo bóng đá lạ: ghi chung + màu: ' + dec[2]);
+  ok(dec[3] === 'Thìa', 'nhận ra đồ vật: ' + dec[3]);
+  ok(dec[4] === null, 'không chắc thì để trống: ' + dec[4]);
+  ok(dec[5] >= 60 && dec[6] >= 150 && dec[7] === dec[5] * 3 + 2 + dec[6], 'kho kiến thức: ' + dec[5] + ' đội, ' + dec[6] + ' đồ vật');
+  const col = await ai.evaluate(async () => { const c = document.createElement('canvas'); c.width = c.height = 40; const x = c.getContext('2d'); const out = []; for (const f of ['#d62020', '#1a3fd0', '#f2d21b', '#222222', '#20a040']) { x.fillStyle = f; x.fillRect(0, 0, 40, 40); out.push(await window.BC_TEST.aiColor(c.toDataURL())); } return out; });
+  ok(col.join(',') === 'đỏ,xanh dương,vàng,đen,xanh lá', 'đặt tên màu: ' + col.join(','));
+  await ai.waitForSelector('#aiclear');
   await noOverflow(ai, 'form tạo (cài đặt AI)'); await ai.screenshot({ path: shots + '/07-ai.png', fullPage: true });
+  await ai.click('#aiclear'); await ai.waitForSelector('.notice.ok');
+  ok(await ai.evaluate(() => JSON.parse(localStorage.getItem('bc_ai_ready'))) === false, 'xóa bộ nhớ AI');
 
   // ---- Chủ poll
   const o = await mk(); await o.goto(base); await o.waitForSelector('#newbtn');
