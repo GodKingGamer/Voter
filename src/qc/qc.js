@@ -140,6 +140,15 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   await o.evaluate(async () => { const b = await (await fetch('icons/icon-512.png')).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], 'r.png', { type: 'image/png' })); document.querySelectorAll('.thumb')[0].dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
   await o.waitForTimeout(700);
   ok(await o.locator('.orow .thumb img').count() === imgsBefore, 'form sửa: thả ảnh vào ô nhỏ thì thay ảnh, không thêm dòng');
+  await o.evaluate(() => { window.BINHCHON_FAKE_AI = { load: async cb => { cb(100); }, recognize: async () => ({ name: 'AI đặt tên', alts: ['Gợi ý X'] }) }; localStorage.setItem('bc_ai_ready', 'true'); });
+  ok(await o.locator('#eai').count() === 1 && await o.locator('#eaiset').count() === 1, 'form sửa có nút AI đặt tên ảnh');
+  await o.locator('.orow input').nth(0).fill(''); await o.click('#eai');
+  await o.waitForFunction(() => document.querySelectorAll('.orow input')[0].value === 'AI đặt tên');
+  ok(await o.locator('.chip', { hasText: 'Gợi ý X' }).count() >= 1, 'form sửa: AI đặt tên và hiện gợi ý khác');
+  await o.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], 'z.png', { type: 'image/png' })); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await o.waitForFunction(() => Array.from(document.querySelectorAll('.orow input')).some((e, i) => i > 3 && e.value.startsWith('AI đặt tên')));
+  ok(true, 'form sửa: ảnh vừa kéo thả tự được AI đặt tên');
+  await o.evaluate(() => { delete window.BINHCHON_FAKE_AI; localStorage.setItem('bc_ai_ready', 'false'); });
   await noOverflow(o, 'form sửa (có khung thả)');
   await o.click('#ecancel'); await o.waitForSelector('#editbtn');
   await o.click('.tab >> nth=1'); ok(await o.locator('#topedit').count() === 1, 'chủ poll thấy nút Chỉnh sửa ở mọi tab');
@@ -171,8 +180,31 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   await v2.locator('.opt').nth(0).click(); await v2.locator('.opt').nth(4).click(); await v2.click('#submit'); await v2.waitForSelector('.rrow');
   ok((await v2.locator('.stat b').first().innerText()) === '2', 'người thứ hai vote được, tổng 2');
 
+  // ---- Người thứ ba dùng tên giống: bị gắn cờ nghi trùng
+  const v2b = await mk(); await v2b.goto(url); await v2b.waitForSelector('#nm');
+  await v2b.fill('#nm', 'Nguyễn Văn An lần 2'); await v2b.click('#go'); await v2b.waitForSelector('.opt');
+  await v2b.locator('.opt').nth(0).click(); await v2b.click('#submit'); await v2b.waitForSelector('.rrow');
+  await o.waitForSelector('tbody tr'); await o.waitForFunction(() => document.querySelectorAll('tbody tr').length === 3);
+  ok((await o.locator('.flag').count()) === 2, 'quản lý gắn cờ nghi trùng cho "Nguyễn Văn An" và "Nguyễn Văn An lần 2"');
+  await o.screenshot({ path: shots + '/03c-flag.png' });
+  await o.locator('tbody tr', { hasText: 'lần 2' }).locator('button').click();
+  await o.waitForFunction(() => document.querySelectorAll('tbody tr').length === 2);
+  ok((await o.locator('.flag').count()) === 0, 'xóa phiếu thừa thì hết cờ');
+  // ---- Danh sách người được vote (chống vote trùng chắc nhất)
+  const ro = await mk(); await ro.goto(base); await ro.waitForSelector('#newbtn'); await ro.click('#newbtn'); await ro.waitForSelector('#t');
+  await ro.fill('#t', 'Họp lớp: chọn quán'); await ro.locator('.orow input').nth(0).fill('Quán A'); await ro.locator('.orow input').nth(1).fill('Quán B');
+  await ro.check('#cron'); await ro.fill('#crt', 'An\nBình\nChi\nan');
+  await ro.click('#mk'); await ro.waitForSelector('#copy');
+  const rurl = await ro.inputValue('input[aria-label="Link bình chọn"]');
+  const rv = await mk(); await rv.goto(rurl); await rv.waitForSelector('.rn');
+  ok((await rv.locator('.rn').count()) === 3 && await rv.locator('#nm').count() === 0, 'có danh sách: người vote chỉ chọn tên (3 tên, trùng "an" bị gộp), không gõ tự do');
+  await rv.locator('.rn', { hasText: 'Bình' }).click(); await rv.waitForSelector('.opt'); await rv.locator('.opt').first().click(); await rv.click('#submit'); await rv.waitForSelector('.rrow');
+  const rv2 = await mk(); await rv2.goto(rurl); await rv2.waitForSelector('.rn');
+  ok(await rv2.locator('.rn', { hasText: 'Bình' }).isDisabled(), 'tên đã vote thì bị khóa trong danh sách');
+  ok((await rv2.locator('.rn', { hasText: 'Bình' }).innerText()).includes('đã bình chọn'), 'ghi rõ "đã bình chọn"');
+
   // ---- Chủ xem quản lý + kết quả
-  await o.waitForSelector('tbody tr'); ok((await o.locator('tbody tr').count()) === 2, 'quản lý thấy 2 người vote');
+  ok((await o.locator('tbody tr').count()) === 2, 'quản lý thấy 2 người vote');
   await o.click('#toggle'); await o.waitForSelector('.badge.closed');
   const v3 = await mk(); await v3.goto(url); await v3.waitForSelector('.notice');
   ok((await v3.locator('.notice').first().innerText()).includes('đã đóng'), 'poll đóng thì người mới không vote được');
