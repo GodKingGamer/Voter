@@ -86,7 +86,7 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   await noOverflow(ai, 'form tạo (cài đặt AI)'); await ai.screenshot({ path: shots + '/07-ai.png', fullPage: true });
   ok(await ai.locator('.chip').count() >= 1, 'hiện nút gợi ý khác');
   await ai.locator('.chip').first().click(); ok((await ai.locator('.orow input').nth(0).inputValue()).startsWith('Gợi ý'), 'bấm gợi ý thì đổi tên');
-  await ai.click('#aiclear'); await ai.waitForSelector('.notice.ok');
+  await ai.click('#aiclear'); await ai.waitForFunction(() => localStorage.getItem('bc_ai_ready') === 'false');
   ok(await ai.evaluate(() => JSON.parse(localStorage.getItem('bc_ai_ready'))) === false, 'xóa bộ nhớ AI');
 
   // ---- Chủ poll
