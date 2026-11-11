@@ -589,7 +589,7 @@ function pasteFromClipboard(){
     var jobs=[];items.forEach(function(it){it.types.forEach(function(t){if(/^image\//.test(t))jobs.push(it.getType(t).then(function(b){return new File([b],"dan.png",{type:t})}))})});
     return Promise.all(jobs).then(function(fs){
       if(!fs.length){S.msg={t:"warn",m:"Clipboard không có ảnh. Hãy sao chép ảnh trước rồi bấm lại."};render();return}
-      return addImageFiles(fs);
+      return addAnyImages(fs);
     });
   }).catch(function(){S.msg={t:"warn",m:"Không đọc được clipboard. Hãy bấm vào ô tên một lựa chọn rồi dán (Ctrl+V)."};render()});
 }
@@ -834,7 +834,14 @@ function openEdit(){
 function editRows(){
   var e=S.edit;
   return e.opts.map(function(o,i){
-    var th=h("button",{class:"thumb",type:"button",title:"Đổi ảnh",onclick:function(){
+    var th=h("button",{class:"thumb",type:"button",title:"Đổi ảnh (bấm, hoặc kéo ảnh thả vào đây)",
+      ondragover:function(ev){if(hasFiles(ev)){ev.preventDefault();ev.stopPropagation();ev.currentTarget.classList.add("dz")}},
+      ondragleave:function(ev){ev.currentTarget.classList.remove("dz")},
+      ondrop:function(ev){
+        if(!hasFiles(ev))return;ev.preventDefault();ev.stopPropagation();
+        dropImages(ev).then(function(fs){var f=fs[0];if(!f)return;return compressImage(f).then(function(u){o.img=u;o.changed=true;render()},function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()})});
+      },
+      onclick:function(){
       pickFiles(false).then(function(fs){if(!fs[0])return;return compressImage(fs[0]).then(function(u){o.img=u;o.changed=true;render()})}).catch(function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
     }},o.img?h("img",{src:o.img,alt:""}):"+ ảnh");
     return h("div",{class:"orow"},th,
@@ -843,12 +850,18 @@ function editRows(){
   });
 }
 function addEditImages(fs){
-  var e=S.edit;if(!e)return Promise.resolve();
-  fs=Array.from(fs).filter(isImg).slice(0,12-e.opts.length);
+  var e=S.edit;if(!e||S.view!=="poll")return Promise.resolve();
+  fs=Array.from(fs).filter(isImg).slice(0,12);
+  if(!fs.length)return Promise.resolve();
   return Promise.all(fs.map(function(f){return compressImage(f).catch(function(){return null})})).then(function(us){
-    us.forEach(function(u){if(u)e.opts.push({id:"o"+rid(5),label:"",img:u,changed:true})});render();
+    us=us.filter(Boolean);
+    var empty=e.opts.filter(function(o){return !o.img&&!cleanName(o.label)}),skipped=0;
+    us.forEach(function(u){var o=empty.shift();if(!o){if(e.opts.length>=12){skipped++;return}o={id:"o"+rid(5),label:"",img:null,changed:true};e.opts.push(o)}o.img=u;o.changed=true});
+    S.msg=skipped?{t:"warn",m:"Chỉ nhận tối đa 12 lựa chọn, đã bỏ qua "+skipped+" ảnh."}:null;
+    render();
   });
 }
+function addAnyImages(fs){return (S.view==="poll"&&S.edit)?addEditImages(fs):addImageFiles(fs)}
 async function saveEdit(){
   var e=S.edit,p=S.poll,title=cleanName(e.title).slice(0,120);
   if(!title){S.msg={t:"err",m:"Hãy nhập tiêu đề."};render();return}
@@ -878,12 +891,17 @@ function viewEdit(){
       h("input",{type:"text",id:"et",maxlength:120,value:e.title,oninput:function(ev){e.title=ev.target.value}}),
       h("label",{class:"f","for":"ed"},"Mô tả (không bắt buộc)"),
       h("textarea",{id:"ed",maxlength:500,value:e.desc,oninput:function(ev){e.desc=ev.target.value}})),
-    h("div",{class:"card"},h("h2",{text:"Các lựa chọn"}),
+    h("div",{class:"card",id:"optcard"},h("h2",{text:"Các lựa chọn"}),
       nameList(),
+      h("div",{class:"dropzone",id:"edropzone",role:"button",tabindex:0,
+        onclick:function(){pickFiles(true).then(addEditImages)},
+        onkeydown:function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();pickFiles(true).then(addEditImages)}}},
+        h("b",{text:"Kéo thả ảnh vào đây để thêm lựa chọn"}),h("span",{text:"hoặc bấm để chọn ảnh · hoặc sao chép ảnh rồi nhấn Ctrl+V"})),
       h("div",{class:"opts"},editRows()),
       h("div",{class:"row2",style:"margin-top:12px"},
         h("button",{class:"btn sec sm",type:"button",id:"eadd",disabled:e.opts.length>=12,onclick:function(){e.opts.push({id:"o"+rid(5),label:"",img:null,changed:false});render()},text:"+ Thêm lựa chọn"}),
-        h("button",{class:"btn sec sm",type:"button",disabled:e.opts.length>=12,onclick:function(){pickFiles(true).then(addEditImages)},text:"Thêm nhiều ảnh cùng lúc"})),
+        h("button",{class:"btn sec sm",type:"button",disabled:e.opts.length>=12,onclick:function(){pickFiles(true).then(addEditImages)},text:"Thêm nhiều ảnh cùng lúc"}),
+        h("button",{class:"btn sec sm",type:"button",id:"epastebtn",disabled:e.opts.length>=12,onclick:pasteFromClipboard,text:"Dán ảnh"})),
       h("p",{class:"sub",style:"font-size:13px;margin:10px 0 0",text:"Bấm vào ảnh nhỏ để đổi ảnh. Xóa một lựa chọn thì các phiếu đã chọn lựa chọn đó không còn được tính."})),
     h("div",{class:"card"},h("h2",{text:"Cách bình chọn"}),
       h("label",{class:"chk-row"},h("input",{type:"checkbox",checked:e.multi,onchange:function(ev){e.multi=ev.target.checked;render()}}),h("span",{text:"Cho chọn nhiều lựa chọn"})),
@@ -942,7 +960,7 @@ function render(){
 }
 document.addEventListener("dragover",function(e){
   if(!hasFiles(e))return;e.preventDefault();
-  var c=document.getElementById("optcard");if(c&&S.view==="create")c.classList.add("dz");
+  var c=document.getElementById("optcard");if(c&&(S.view==="create"||(S.view==="poll"&&S.edit)))c.classList.add("dz");
 });
 document.addEventListener("dragleave",function(e){
   if(e.relatedTarget)return;var c=document.getElementById("optcard");if(c)c.classList.remove("dz");
@@ -950,12 +968,12 @@ document.addEventListener("dragleave",function(e){
 document.addEventListener("drop",function(e){
   if(!hasFiles(e))return;e.preventDefault();
   var c=document.getElementById("optcard");if(c)c.classList.remove("dz");
-  if(S.view==="create")dropImages(e).then(function(fs){if(fs.length)addImageFiles(fs)});
+  if(S.view==="create"||(S.view==="poll"&&S.edit))dropImages(e).then(function(fs){if(fs.length)addAnyImages(fs)});
 });
 document.addEventListener("paste",function(e){
-  if(S.view!=="create"||!e.clipboardData)return;
+  if(!(S.view==="create"||(S.view==="poll"&&S.edit))||!e.clipboardData)return;
   var fs=Array.from(e.clipboardData.files||[]).filter(isImg);
-  if(!fs.length)return;e.preventDefault();addImageFiles(fs);
+  if(!fs.length)return;e.preventDefault();addAnyImages(fs);
 });
 window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();S.installEv=e;if(S.be&&S.view==="home")render()});
 

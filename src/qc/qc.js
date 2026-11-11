@@ -127,6 +127,20 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   await o.click('#editbtn'); await o.waitForSelector('#esave');
   const lbls = await o.locator('.orow input').evaluateAll(els => els.map(e => e.value));
   ok(lbls[0] === 'Mẫu A đổi tên' && lbls[lbls.length - 1] === 'Lựa chọn mới thêm' && lbls.length === imgs.length + 2, 'mở lại form sửa: tên mới và lựa chọn mới đã được lưu');
+  // sửa: dán, kéo thả, khung thả (form sửa đang mở)
+  ok(await o.locator('#edropzone').count() === 1 && await o.locator('#epastebtn').count() === 1, 'form sửa có khung kéo thả và nút Dán ảnh');
+  const nE = await o.locator('.orow').count();
+  await o.evaluate(async () => { const b = await (await fetch('icons/icon-512.png')).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], 'p.png', { type: 'image/png' })); document.dispatchEvent(Object.assign(new Event('paste', { bubbles: true, cancelable: true }), { clipboardData: dt })); });
+  await o.waitForFunction(n => document.querySelectorAll('.orow').length === n + 1, nE);
+  ok(true, 'form sửa: dán ảnh (Ctrl+V) thêm lựa chọn mới');
+  await o.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); for (let i = 0; i < 2; i++) dt.items.add(new File([b], 'd' + i + '.png', { type: 'image/png' })); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await o.waitForFunction(n => document.querySelectorAll('.orow').length >= n + 2, nE);
+  ok(true, 'form sửa: kéo thả nhiều ảnh thêm lựa chọn');
+  const imgsBefore = await o.locator('.orow .thumb img').count();
+  await o.evaluate(async () => { const b = await (await fetch('icons/icon-512.png')).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], 'r.png', { type: 'image/png' })); document.querySelectorAll('.thumb')[0].dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await o.waitForTimeout(700);
+  ok(await o.locator('.orow .thumb img').count() === imgsBefore, 'form sửa: thả ảnh vào ô nhỏ thì thay ảnh, không thêm dòng');
+  await noOverflow(o, 'form sửa (có khung thả)');
   await o.click('#ecancel'); await o.waitForSelector('#editbtn');
   await o.click('.tab >> nth=1'); ok(await o.locator('#topedit').count() === 1, 'chủ poll thấy nút Chỉnh sửa ở mọi tab');
   await o.click('#topedit'); await o.waitForSelector('#esave'); ok(true, 'nút Chỉnh sửa trên đầu trang mở form sửa'); await o.click('#ecancel'); await o.waitForSelector('#editbtn');
