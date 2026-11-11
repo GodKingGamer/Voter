@@ -81,7 +81,7 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   ok(dec[4] === null, 'không chắc thì để trống: ' + dec[4]);
   ok(dec[5] === 2, 'gợi ý khác: ' + dec[5] + ' lựa chọn');
   ok(dec[6] >= 300 && dec[7] >= 150 && dec[8] === dec[6] * 3 + 2 + dec[7], 'kho kiến thức: ' + dec[6] + ' đội, ' + dec[7] + ' đồ vật');
-  ok(dec[9][0] === null && dec[9][1] >= 3, 'không chắc đội: để trống, hiện gợi ý: ' + JSON.stringify(dec[9]));
+  ok(typeof dec[9][0] === 'string' && dec[9][0].includes('Arsenal') && dec[9][1] >= 2, 'luôn đoán đội đứng đầu kèm gợi ý khác: ' + JSON.stringify(dec[9]));
   const mem = await ai.evaluate(() => { const a = Array.from({ length: 512 }, (_, i) => Math.sin(i)), n = Math.sqrt(a.reduce((s, x) => s + x * x, 0)), v = a.map(x => x / n); BC_TEST.mem.save('Áo Test', v); const w = v.map((x, i) => x + (i % 2 ? 0.004 : -0.004)), m2 = Math.sqrt(w.reduce((s, x) => s + x * x, 0)), w2 = w.map(x => x / m2), other = v.map((x, i) => Math.cos(i * 7)); const o2 = Math.sqrt(other.reduce((s, x) => s + x * x, 0)); return [BC_TEST.mem.find(w2), BC_TEST.mem.find(other.map(x => x / o2))]; });
   ok(mem[0] === 'Áo Test' && mem[1] === null, 'app nhớ tên bạn đã chọn cho ảnh giống: ' + JSON.stringify(mem));
   ok(await ai.locator('datalist#bcnames option').count() > 1000 && await ai.locator('.orow input[list=bcnames]').count() >= 2, 'ô tên có danh sách gợi ý gõ nhanh (400 đội, 3 loại áo)');
@@ -111,11 +111,30 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   ok(/#p=[a-z0-9]{10}$/.test(url), 'có link chia sẻ ' + url.replace(/^.*#/, '#'));
   await o.screenshot({ path: shots + '/03-manage.png' });
 
+  // ---- Chủ poll chỉnh sửa
+  await o.click('#editbtn'); await o.waitForSelector('#esave');
+  ok(await o.locator('#editcard #et').inputValue() === 'Chọn mẫu áo đồng phục', 'mở form chỉnh sửa có sẵn tiêu đề cũ');
+  ok((await o.locator('.orow').count()) === imgs.length + 1 && (await o.locator('.orow .thumb img').count()) === imgs.length, 'form sửa hiện đủ lựa chọn và ảnh');
+  await o.fill('#et', 'Chọn mẫu áo đồng phục (đã sửa)');
+  await o.locator('.orow input').first().fill('Mẫu A đổi tên');
+  await o.click('#eadd'); await o.locator('.orow input').last().fill('Lựa chọn mới thêm');
+  const [fcE] = await Promise.all([o.waitForEvent('filechooser'), o.locator('.orow .thumb').nth(1).click()]); await fcE.setFiles(imgs[0]);
+  await o.waitForTimeout(500);
+  await noOverflow(o, 'form chỉnh sửa'); await o.screenshot({ path: shots + '/03b-edit.png', fullPage: true });
+  await o.click('#esave'); await o.waitForSelector('#editbtn');
+  ok((await o.locator('.notice.ok').innerText()).includes('Đã lưu'), 'lưu chỉnh sửa thành công');
+  ok((await o.locator('h1').innerText()).includes('(đã sửa)'), 'tiêu đề mới hiển thị');
+  await o.click('#editbtn'); await o.waitForSelector('#esave');
+  const lbls = await o.locator('.orow input').evaluateAll(els => els.map(e => e.value));
+  ok(lbls[0] === 'Mẫu A đổi tên' && lbls[lbls.length - 1] === 'Lựa chọn mới thêm' && lbls.length === imgs.length + 2, 'mở lại form sửa: tên mới và lựa chọn mới đã được lưu');
+  await o.click('#ecancel'); await o.waitForSelector('#editbtn');
+
   // ---- Người vote 1
   const v1 = await mk(); await v1.goto(url); await v1.waitForSelector('#nm');
   await v1.fill('#nm', 'Nguyễn Văn An'); await v1.click('#go'); await v1.waitForSelector('.opt');
   await noOverflow(v1, 'trang vote'); await v1.screenshot({ path: shots + '/04-vote.png' });
   const cards = v1.locator('.opt');
+  ok((await cards.first().innerText()).includes('Mẫu A đổi tên') || (await v1.locator('.opt').allInnerTexts()).some(x => x.includes('Mẫu A đổi tên')), 'người vote thấy tên đã sửa');
   await cards.nth(0).click(); await cards.nth(1).click(); await cards.nth(2).click(); await cards.nth(3).click();
   ok((await v1.locator('.opt[aria-pressed=true]').count()) === 3, 'giới hạn tối đa 3 lựa chọn');
   ok(await v1.locator('.notice.warn').count() === 1, 'hiện cảnh báo vượt giới hạn');
