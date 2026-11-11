@@ -416,13 +416,15 @@ function aiDecide(P,color){
   }
   if(fb>=0.4){
     var sc=T.map(function(t,i){return [i,P[i*3]+P[i*3+1]+P[i*3+2]]}).sort(function(a,b){return b[1]-a[1]});
-    sc.slice(0,3).forEach(function(x){if(x[1]>=0.02)alts.push(teamName(x[0]))});
-    var bt=sc[0][0],bp=sc[0][1];
-    var name=(bp>=0.15&&bp/fb>=0.3)?teamName(bt):"Áo bóng đá"+(color?" màu "+color:"");
-    return {name:name,alts:alts.filter(function(x){return x!==name}).slice(0,3),sure:name!==("Áo bóng đá"+(color?" màu "+color:""))};
+    sc.slice(0,5).forEach(function(x){if(x[1]>=0.01)alts.push(teamName(x[0]))});
+    var bt=sc[0][0],bp=sc[0][1],gen="Áo bóng đá"+(color?" màu "+color:""),name=null;
+    if(bp>=0.15&&bp/fb>=0.3)name=teamName(bt);
+    else if((P[nT]+P[nT+1])/fb>=0.4)name=gen;
+    else alts.push(gen);
+    return {name:name,alts:alts.filter(function(x){return x!==name}).slice(0,5),sure:!!name&&name!==gen};
   }
   var os=O.map(function(o,i){return [i,P[nT+2+i]]}).sort(function(a,b){return b[1]-a[1]});
-  os.slice(0,3).forEach(function(x){if(x[1]>=0.03)alts.push(O[x[0]][0])});
+  os.slice(0,5).forEach(function(x){if(x[1]>=0.03)alts.push(O[x[0]][0])});
   var top=os[0];
   if(top[1]>=0.2)return {name:O[top[0]][0],alts:alts.slice(1),sure:true};
   return {name:null,alts:alts,sure:false};
@@ -473,14 +475,29 @@ async function aiRecognize(dataUrl){
   var v1=await aiEmbed(dataUrl),v2=await aiEmbed(await aiCrop(dataUrl)),dim=v1.length,j;
   var v=v1.map(function(x,i){return x+v2[i]}),n=0;
   for(j=0;j<dim;j++)n+=v[j]*v[j];n=Math.sqrt(n)||1;
+  var vn=v.map(function(x){return x/n}),known=aiMemFind(vn);
   var N=AI.emb.length/dim,L=new Array(N);
   for(var i=0;i<N;i++){var s=0,off=i*dim;for(j=0;j<dim;j++)s+=v[j]*AI.emb[off+j];L[i]=s/n*100}
   var P=aiSoftmax(L),fb=0,nT=BC_KB.teams.length*3;
   for(i=0;i<nT+2;i++)fb+=P[i];
   var color=(fb>=0.4)?await aiColor(dataUrl):"";
-  return aiDecide(P,color);
+  var r=aiDecide(P,color);r.emb=vn;
+  if(known){r.alts=[r.name].concat(r.alts).filter(function(x){return x&&x!==known}).slice(0,5);r.name=known;r.sure=true}
+  return r;
 }
 window.BC_TEST={aiDecide:aiDecide,aiColor:aiColor,aiPrompts:aiPrompts,KB:BC_KB,aiLoad:aiLoad,aiRecognize:aiRecognize};
+window.BC_TEST.mem={save:aiMemSave,find:aiMemFind};
+function aiMemGet(){return lsGet("bc_ai_mem",[])}
+function aiCos(a,b){var s=0;for(var i=0;i<a.length;i++)s+=a[i]*b[i];return s}
+function aiMemSave(label,emb){
+  var e=emb.map(function(x){return Math.round(x*1000)/1000});
+  var m=aiMemGet().filter(function(x){return !(x.n===label&&aiCos(x.e,e)>0.97)});
+  m.unshift({n:label,e:e});lsSet("bc_ai_mem",m.slice(0,80));
+}
+function aiMemFind(v){
+  var best=null,bs=0;aiMemGet().forEach(function(x){if(x.e.length!==v.length)return;var c=aiCos(x.e,v);if(c>bs){bs=c;best=x}});
+  return bs>=0.93?best.n:null;
+}
 function afterImages(){render();if(aiReady()&&aiAuto())aiName()}
 async function aiName(){
   var d=S.draft;if(!d||S.view!=="create"||S.aiBusy)return;
@@ -496,13 +513,14 @@ async function aiName(){
       var rr=null;try{rr=await aiRecognize(o.img)}catch(e){rr=null}
       if(typeof rr==="string")rr={name:rr,alts:[]};
       if(rr&&rr.alts&&rr.alts.length)o.alts=rr.alts;
+      if(rr&&rr.emb)o.emb=rr.emb;
       nm=rr&&rr.name?cleanName(String(rr.name)).slice(0,80):"";
       if(!nm||cleanName(o.label)){if(!nm)unknown++;continue}
       var used=d.opts.map(function(x){return cleanName(x.label).toLowerCase()}),base=nm,c=2;
       while(used.indexOf(nm.toLowerCase())>=0){nm=base+" ("+c+")";c++}
       o.label=nm;done++;
     }
-    S.msg=done?{t:"ok",m:"AI đã đặt tên cho "+done+" ảnh"+(unknown?", "+unknown+" ảnh chưa nhận ra":"")+". Đây là gợi ý, bạn có thể sửa lại."}:{t:"warn",m:"AI chưa nhận ra ảnh nào. Bạn có thể tự gõ tên."};
+    S.msg=done?{t:"ok",m:"AI đã đặt tên cho "+done+" ảnh"+(unknown?", "+unknown+" ảnh chưa chắc (chọn gợi ý bên dưới ảnh hoặc gõ vài chữ để chọn tên)":"")+". Tên bạn chọn sẽ được app nhớ cho lần sau."}:{t:"warn",m:"AI chưa chắc ảnh nào. Hãy chọn một gợi ý bên dưới ảnh, hoặc gõ vài chữ rồi chọn tên trong danh sách."};
   }catch(e){S.msg={t:"err",m:"Không tải hoặc chạy được AI: "+(AI.err||"kiểm tra mạng rồi thử lại")+"."}}
   S.aiBusy=false;render();
 }
@@ -539,7 +557,7 @@ function addImageFiles(fs){
   return Promise.all(fs.map(function(f){return compressImage(f).catch(function(){return null})})).then(function(us){
     us=us.filter(Boolean);
     var empty=d.opts.filter(function(o){return !o.img&&!o.label}),skipped=0;
-    us.forEach(function(u){var o=empty.shift();if(!o){if(d.opts.length>=12){skipped++;return}o=newOpt();d.opts.push(o)}o.img=u});
+    us.forEach(function(u){var o=empty.shift();if(!o){if(d.opts.length>=12){skipped++;return}o=newOpt();d.opts.push(o)}o.img=u;o.emb=null;o.alts=null});
     S.msg=skipped?{t:"warn",m:"Chỉ nhận tối đa 12 lựa chọn, đã bỏ qua "+skipped+" ảnh."}:null;
     afterImages();
   });
@@ -576,6 +594,15 @@ function pickFiles(multiple){
     document.body.appendChild(i);i.click();
   });
 }
+function nameList(){
+  if(!S._dl){
+    var dl=document.createElement("datalist");dl.id="bcnames";
+    BC_KB.teams.forEach(function(t){for(var k=0;k<3;k++){var o=document.createElement("option");o.value=t[0]+" – "+AI_KIT[k];o.label=t[1].replace(/ football club$/,"");dl.appendChild(o)}});
+    BC_KB.objects.forEach(function(x){var o=document.createElement("option");o.value=x[0];o.label=x[1];dl.appendChild(o)});
+    S._dl=dl;
+  }
+  return S._dl.cloneNode(true);
+}
 function viewCreate(){
   var d=S.draft;
   var rows=d.opts.map(function(o,i){
@@ -585,14 +612,14 @@ function viewCreate(){
       ondrop:function(e){
         if(!hasFiles(e))return;e.preventDefault();e.stopPropagation();
         dropImages(e).then(function(fs){var f=fs[0];if(!f)return;
-          return compressImage(f).then(function(u){o.img=u;afterImages()},function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()})});
+          return compressImage(f).then(function(u){o.img=u;o.emb=null;o.alts=null;afterImages()},function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()})});
       },
       onclick:function(){
-      pickFiles(false).then(function(fs){if(!fs[0])return;return compressImage(fs[0]).then(function(u){o.img=u;afterImages()})}).catch(function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
+      pickFiles(false).then(function(fs){if(!fs[0])return;return compressImage(fs[0]).then(function(u){o.img=u;o.emb=null;o.alts=null;afterImages()})}).catch(function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
     }},o.img?h("img",{src:o.img,alt:""}):"+ ảnh");
     var alts=(o.alts||[]).filter(function(a){return a&&a!==o.label});
     return h("div",{class:"oitem"},h("div",{class:"orow"},th,
-      h("input",{type:"text",maxlength:80,placeholder:"Lựa chọn "+(i+1),value:o.label,"aria-label":"Tên lựa chọn "+(i+1),oninput:function(e){o.label=e.target.value}}),
+      h("input",{type:"text",maxlength:80,list:"bcnames",autocomplete:"off",placeholder:"Lựa chọn "+(i+1),value:o.label,"aria-label":"Tên lựa chọn "+(i+1),oninput:function(e){o.label=e.target.value}}),
       h("button",{class:"x",type:"button",title:"Xóa",disabled:d.opts.length<=2,onclick:function(){d.opts.splice(i,1);render()},text:"×"})),
       alts.length?h("div",{class:"alts"},h("span",{text:"Gợi ý khác:"}),alts.map(function(a){return h("button",{type:"button",class:"chip",onclick:function(){o.label=a;o.alts=null;render()},text:a})})):null);
   });
@@ -611,6 +638,7 @@ function viewCreate(){
         onclick:function(){pickFiles(true).then(addImageFiles)},
         onkeydown:function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();pickFiles(true).then(addImageFiles)}}},
         h("b",{text:"Kéo thả ảnh vào đây"}),h("span",{text:"hoặc bấm để chọn ảnh · hoặc sao chép ảnh rồi nhấn Ctrl+V"})),
+      nameList(),
       h("div",{class:"opts"},rows),
       h("div",{class:"row2",style:"margin-top:12px"},
         h("button",{class:"btn sec sm",type:"button",disabled:d.opts.length>=12,onclick:function(){d.opts.push(newOpt());render()},text:"+ Thêm lựa chọn"}),
@@ -647,6 +675,7 @@ async function doCreate(){
   S.busy=true;S.msg=null;render();
   try{
     await S.be.createPoll(pid,poll,imgs);
+    try{d.opts.forEach(function(o){var l=cleanName(o.label);if(o.emb&&l&&!/^Mẫu \d+$/.test(l))aiMemSave(l,o.emb)})}catch(e){}
     var mine=lsGet("bc_mine",[]);mine.unshift({id:pid,title:title,createdAt:poll.createdAt});lsSet("bc_mine",mine.slice(0,50));
     S.busy=false;S.pendingTab="manage";go("#p="+pid);
   }catch(e){

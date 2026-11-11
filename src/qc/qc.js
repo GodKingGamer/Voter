@@ -70,7 +70,8 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
       aiDecide(mk({ [sp]: 0.7 }), '').name,
       aiDecide(mk({ [sp]: 0.1, [sp + 1]: 0.1, [sp + 2]: 0.1, [sp + 3]: 0.1 }), '').name,
       aiDecide(mk({ [ar * 3 + 1]: 0.5, [mu * 3]: 0.3, [T.findIndex(t => t[0] === 'Chelsea') * 3]: 0.1 }), '').alts.length,
-      T.length, O.length, aiPrompts().length
+      T.length, O.length, aiPrompts().length,
+      (() => { const r = aiDecide(mk({ [ar * 3]: 0.14, [mu * 3]: 0.14, [T.findIndex(t => t[0] === 'Chelsea') * 3]: 0.14, [nT + 1]: 0.01 }), 'xám'); return [r.name, r.alts.length]; })()
     ];
   });
   ok(dec[0] === 'Arsenal – áo sân khách', 'nhận ra đội + áo sân khách: ' + dec[0]);
@@ -80,6 +81,10 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   ok(dec[4] === null, 'không chắc thì để trống: ' + dec[4]);
   ok(dec[5] === 2, 'gợi ý khác: ' + dec[5] + ' lựa chọn');
   ok(dec[6] >= 300 && dec[7] >= 150 && dec[8] === dec[6] * 3 + 2 + dec[7], 'kho kiến thức: ' + dec[6] + ' đội, ' + dec[7] + ' đồ vật');
+  ok(dec[9][0] === null && dec[9][1] >= 3, 'không chắc đội: để trống, hiện gợi ý: ' + JSON.stringify(dec[9]));
+  const mem = await ai.evaluate(() => { const a = Array.from({ length: 512 }, (_, i) => Math.sin(i)), n = Math.sqrt(a.reduce((s, x) => s + x * x, 0)), v = a.map(x => x / n); BC_TEST.mem.save('Áo Test', v); const w = v.map((x, i) => x + (i % 2 ? 0.004 : -0.004)), m2 = Math.sqrt(w.reduce((s, x) => s + x * x, 0)), w2 = w.map(x => x / m2), other = v.map((x, i) => Math.cos(i * 7)); const o2 = Math.sqrt(other.reduce((s, x) => s + x * x, 0)); return [BC_TEST.mem.find(w2), BC_TEST.mem.find(other.map(x => x / o2))]; });
+  ok(mem[0] === 'Áo Test' && mem[1] === null, 'app nhớ tên bạn đã chọn cho ảnh giống: ' + JSON.stringify(mem));
+  ok(await ai.locator('datalist#bcnames option').count() > 1000 && await ai.locator('.orow input[list=bcnames]').count() >= 2, 'ô tên có danh sách gợi ý gõ nhanh (400 đội, 3 loại áo)');
   const col = await ai.evaluate(async () => { const c = document.createElement('canvas'); c.width = c.height = 40; const x = c.getContext('2d'); const out = []; for (const f of ['#d62020', '#1a3fd0', '#f2d21b', '#222222', '#20a040']) { x.fillStyle = f; x.fillRect(0, 0, 40, 40); out.push(await window.BC_TEST.aiColor(c.toDataURL())); } return out; });
   ok(col.join(',') === 'đỏ,xanh dương,vàng,đen,xanh lá', 'đặt tên màu: ' + col.join(','));
   await ai.waitForSelector('#aiclear');
