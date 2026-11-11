@@ -44,7 +44,7 @@ h2{font-size:18px;margin:0 0 10px}
 .notice.ok{border-color:var(--ok);color:var(--ok)}
 .notice.err{border-color:var(--danger);color:var(--danger)}
 label.f{display:block;font-weight:600;font-size:14px;margin:12px 0 4px}
-input[type=text],input[type=number],textarea{width:100%;font:inherit;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+input[type=text],input[type=number],input[type=password],textarea{width:100%;font:inherit;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 input:focus,textarea:focus{outline:3px solid var(--accent-soft);border-color:var(--accent)}
 textarea{resize:vertical;min-height:64px}
 .opts{display:flex;flex-direction:column;gap:8px}
@@ -305,13 +305,13 @@ function viewHome(){
 function footer(){
   return h("footer",{class:"ver"},
     S.installEv?h("button",{class:"linkbtn",type:"button",onclick:function(){S.installEv.prompt();S.installEv=null;render()},text:"Cài app lên điện thoại"}):null,
-    h("p",{text:"Bình chọn nhanh · Bản 02 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
+    h("p",{text:"Bình chọn nhanh · Bản 03 · 11/11/2026 · Người tạo: Hoàng Trung Đức"}));
 }
 
 /* =============== Tạo poll =============== */
 function newOpt(){return {id:"o"+rid(5),label:"",img:null}}
 function openCreate(){
-  S.view="create";S.draft={title:"",desc:"",opts:[newOpt(),newOpt()],multi:true,maxPick:0,publicNames:false};render();
+  S.aiBusy=false;S.aiPanel=false;S.view="create";S.draft={title:"",desc:"",opts:[newOpt(),newOpt()],multi:true,maxPick:0,publicNames:false};render();
 }
 function compressImage(file){
   return new Promise(function(res,rej){
@@ -328,6 +328,52 @@ function compressImage(file){
     im.src=url;
   });
 }
+var AI_MODEL="claude-haiku-5-5";
+function aiKey(){return lsGet("bc_key","")}
+function aiAuto(){return lsGet("bc_ai_auto",true)!==false}
+function afterImages(){render();if(aiKey()&&aiAuto())aiName()}
+async function aiName(){
+  var d=S.draft;if(!d||S.view!=="create"||S.aiBusy)return;
+  if(!aiKey()){S.aiPanel=true;S.msg={t:"warn",m:"Hãy dán API key để dùng AI đặt tên."};render();return}
+  var targets=d.opts.filter(function(o){return o.img&&!cleanName(o.label)});
+  if(!targets.length){S.msg={t:"ok",m:"Mọi ảnh đã có tên."};render();return}
+  S.aiBusy=true;S.msg=null;render();
+  var content=[{type:"text",text:"Dưới đây là "+targets.length+" ảnh, đánh số từ 1. Với mỗi ảnh hãy gọi tên ngắn gọn bằng tiếng Việt (tối đa 8 từ) cho vật chính trong ảnh. Nếu các ảnh cùng loại, hãy thêm đặc điểm nhìn thấy để phân biệt (màu, kiểu, thương hiệu, đội bóng...). Chỉ trả về JSON dạng {\"names\":[\"tên ảnh 1\",\"tên ảnh 2\"]} đúng thứ tự, không giải thích."}];
+  targets.forEach(function(o,i){
+    var m=/^data:(image\/[a-z+.-]+);base64,(.*)$/.exec(o.img);if(!m)return;
+    content.push({type:"text",text:"Ảnh "+(i+1)+":"});content.push({type:"image",source:{type:"base64",media_type:m[1],data:m[2]}});
+  });
+  var done=0;
+  try{
+    var r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","x-api-key":aiKey(),"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:AI_MODEL,max_tokens:800,messages:[{role:"user",content:content}]})});
+    var j=await r.json().catch(function(){return {}});
+    if(!r.ok){
+      var em=(j&&j.error&&j.error.message)||"";
+      S.msg={t:"err",m:r.status===401?"API key không đúng hoặc đã hết hiệu lực. Mở “Cài đặt AI” để dán key mới.":r.status===429?"AI đang bị giới hạn tốc độ, hãy thử lại sau ít phút.":/credit|billing/i.test(em)?"Tài khoản API chưa có credit. Nạp credit ở console.anthropic.com rồi thử lại.":"AI báo lỗi ("+r.status+"). "+em.slice(0,120)};
+    }else{
+      var txt=(j.content||[]).map(function(c){return c.text||""}).join(""),mm=/\{[\s\S]*\}/.exec(txt),names=JSON.parse(mm[0]).names||[];
+      targets.forEach(function(o,i){if(names[i]&&!cleanName(o.label)){o.label=cleanName(String(names[i])).slice(0,80);done++}});
+      S.msg=done?{t:"ok",m:"AI đã đặt tên cho "+done+" ảnh. Bạn có thể sửa lại nếu cần."}:{t:"warn",m:"AI không trả về tên nào, hãy thử lại."};
+    }
+  }catch(e){S.msg={t:"err",m:"Không kết nối được tới AI hoặc câu trả lời không đọc được. Kiểm tra mạng rồi thử lại."}}
+  S.aiBusy=false;render();
+}
+function aiPanel(){
+  var has=!!aiKey();
+  return h("div",{class:"notice",style:"margin-top:12px"},
+    h("b",{text:"AI đặt tên ảnh (Claude)"}),
+    h("p",{class:"sub",style:"font-size:13px;margin:6px 0",text:"Dán API key lấy ở console.anthropic.com (mục API keys; tính phí theo lượt dùng, vài trăm đồng mỗi ảnh). Key chỉ lưu trong trình duyệt này và chỉ gửi tới api.anthropic.com. Ảnh được gửi cho Claude để nhận diện."}),
+    h("input",{type:"password",id:"aikey",autocomplete:"off","aria-label":"API key",placeholder:has?"Đã lưu key (dán key mới để thay)":"sk-ant-..."}),
+    h("label",{class:"chk-row"},h("input",{type:"checkbox",checked:aiAuto(),onchange:function(e){lsSet("bc_ai_auto",e.target.checked)}}),h("span",{text:"Tự đặt tên ngay khi thêm ảnh"})),
+    h("div",{class:"row2"},
+      h("button",{class:"btn sm",type:"button",id:"aisave",onclick:function(){
+        var v=($("#aikey").value||"").trim();
+        if(!/^sk-ant-/.test(v)){S.msg={t:"warn",m:"Key phải bắt đầu bằng sk-ant-"};render();return}
+        lsSet("bc_key",v);S.aiPanel=false;S.msg={t:"ok",m:"Đã lưu key trong trình duyệt này."};render();
+        if(S.draft&&S.draft.opts.some(function(o){return o.img&&!cleanName(o.label)}))aiName();
+      },text:"Lưu key"}),
+      has?h("button",{class:"btn ghost sm",type:"button",onclick:function(){try{localStorage.removeItem("bc_key")}catch(e){}S.msg={t:"ok",m:"Đã xóa key khỏi trình duyệt."};render()},text:"Xóa key"}):null));
+}
 function isImg(f){return f&&/^image\//.test(f.type)}
 function addImageFiles(fs){
   var d=S.draft;if(!d||S.view!=="create")return Promise.resolve();
@@ -338,7 +384,7 @@ function addImageFiles(fs){
     var empty=d.opts.filter(function(o){return !o.img&&!o.label}),skipped=0;
     us.forEach(function(u){var o=empty.shift();if(!o){if(d.opts.length>=12){skipped++;return}o=newOpt();d.opts.push(o)}o.img=u});
     S.msg=skipped?{t:"warn",m:"Chỉ nhận tối đa 12 lựa chọn, đã bỏ qua "+skipped+" ảnh."}:null;
-    render();
+    afterImages();
   });
 }
 function hasFiles(e){var t=e.dataTransfer&&e.dataTransfer.types;return !!t&&Array.prototype.indexOf.call(t,"Files")>=0}
@@ -368,10 +414,10 @@ function viewCreate(){
       ondrop:function(e){
         if(!hasFiles(e))return;e.preventDefault();e.stopPropagation();
         var f=Array.from(e.dataTransfer.files).filter(isImg)[0];if(!f)return;
-        compressImage(f).then(function(u){o.img=u;render()},function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
+        compressImage(f).then(function(u){o.img=u;afterImages()},function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
       },
       onclick:function(){
-      pickFiles(false).then(function(fs){if(!fs[0])return;return compressImage(fs[0]).then(function(u){o.img=u;render()})}).catch(function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
+      pickFiles(false).then(function(fs){if(!fs[0])return;return compressImage(fs[0]).then(function(u){o.img=u;afterImages()})}).catch(function(){S.msg={t:"err",m:"Không đọc được ảnh này."};render()});
     }},o.img?h("img",{src:o.img,alt:""}):"+ ảnh");
     return h("div",{class:"orow"},th,
       h("input",{type:"text",maxlength:80,placeholder:"Lựa chọn "+(i+1),value:o.label,"aria-label":"Tên lựa chọn "+(i+1),oninput:function(e){o.label=e.target.value}}),
@@ -393,6 +439,10 @@ function viewCreate(){
         h("button",{class:"btn sec sm",type:"button",disabled:d.opts.length>=12,onclick:function(){d.opts.push(newOpt());render()},text:"+ Thêm lựa chọn"}),
         h("button",{class:"btn sec sm",type:"button",disabled:d.opts.length>=12,onclick:function(){pickFiles(true).then(addImageFiles)},text:"Thêm nhiều ảnh cùng lúc"}),
         h("button",{class:"btn sec sm",type:"button",id:"pastebtn",disabled:d.opts.length>=12,onclick:pasteFromClipboard,text:"Dán ảnh"})),
+      h("div",{class:"row2",style:"margin-top:10px"},
+        h("button",{class:"btn sec sm",type:"button",id:"aibtn",disabled:S.aiBusy,onclick:aiName,text:S.aiBusy?"AI đang xem ảnh…":"✨ AI đặt tên cho ảnh"}),
+        h("button",{class:"linkbtn",type:"button",id:"aiset",onclick:function(){S.aiPanel=!S.aiPanel;render()},text:aiKey()?"Cài đặt AI (đã có key)":"Cài đặt AI"})),
+      S.aiPanel?aiPanel():null,
       h("p",{class:"sub",style:"font-size:13px;margin:10px 0 0",text:"Kéo thả ảnh vào đây (thả vào ô ảnh nhỏ để thay ảnh đó), dán ảnh bằng Ctrl+V, hoặc bấm chọn từ máy. Tối đa 12 lựa chọn, ảnh tự thu nhỏ. Lựa chọn chỉ có ảnh sẽ tên “Mẫu 1, Mẫu 2…”."})),
     h("div",{class:"card"},
       h("h2",{text:"Cách bình chọn"}),

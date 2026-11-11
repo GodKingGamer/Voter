@@ -28,6 +28,40 @@ const imgs = fs.readdirSync(imgDir).filter(f => /\.(png|jpe?g)$/i.test(f)).slice
   ok(await dz.locator('#pastebtn').count() === 1, 'có nút Dán ảnh');
   await noOverflow(dz, 'form tạo (có ảnh)');
 
+  // ---- AI đặt tên (API giả lập)
+  const ai = await mk(); let aiReq = null, aiMode = 'ok';
+  await ai.route('https://api.anthropic.com/**', async route => {
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    aiReq = { h: route.request().headers(), b: JSON.parse(route.request().postData()) };
+    if (aiMode === '401') return route.fulfill({ status: 401, headers: cors, contentType: 'application/json', body: JSON.stringify({ error: { message: 'invalid x-api-key' } }) });
+    const n = aiReq.b.messages[0].content.filter(c => c.type === 'image').length;
+    route.fulfill({ status: 200, headers: cors, contentType: 'application/json', body: JSON.stringify({ content: [{ type: 'text', text: '```json\n' + JSON.stringify({ names: Array.from({ length: n }, (_, i) => 'Áo thử ' + (i + 1)) }) + '\n```' }] }) });
+  });
+  await ai.goto(base + '#new'); await ai.waitForSelector('#t');
+  await ai.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); for (let i = 0; i < 2; i++) dt.items.add(new File([b], 'x' + i + '.png', { type: 'image/png' })); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await ai.waitForFunction(() => document.querySelectorAll('.thumb img').length === 2);
+  ok(await ai.locator('.orow input').first().inputValue() === '' && aiReq === null, 'chưa có key: không tự gọi AI');
+  await ai.click('#aiset'); await ai.waitForSelector('#aikey');
+  await ai.fill('#aikey', 'sai-dinh-dang'); await ai.click('#aisave');
+  ok((await ai.locator('.notice.warn').innerText()).includes('sk-ant-'), 'từ chối key sai định dạng');
+  await ai.waitForSelector('#aikey');
+  await ai.fill('#aikey', 'sk-ant-test123'); await ai.click('#aisave');
+  await ai.waitForFunction(() => document.querySelector('.orow input').value.startsWith('Áo thử'));
+  ok(aiReq && aiReq.h['x-api-key'] === 'sk-ant-test123' && aiReq.h['anthropic-dangerous-direct-browser-access'] === 'true' && aiReq.b.model === 'claude-haiku-5-5', 'gọi đúng API: header, model');
+  ok(aiReq.b.messages[0].content.filter(c => c.type === 'image').length === 2 && /^[A-Za-z0-9+\/=]+$/.test(aiReq.b.messages[0].content.find(c => c.type === 'image').source.data.slice(0, 40)), 'gửi 2 ảnh dạng base64');
+  const names = await ai.locator('.orow input').evaluateAll(els => els.map(e => e.value));
+  ok(names[0] === 'Áo thử 1' && names[1] === 'Áo thử 2', 'AI điền tên từng ảnh theo thứ tự (tự bóc khối ```json)');
+  await ai.locator('.orow input').first().fill('Tên tôi sửa');
+  await ai.evaluate(async () => { const b = await (await fetch('icons/icon-192.png')).blob(); const dt = new DataTransfer(); dt.items.add(new File([b], 'y.png', { type: 'image/png' })); document.querySelector('#optcard').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); });
+  await ai.waitForFunction(() => document.querySelectorAll('.orow').length === 3);
+  await ai.waitForFunction(() => document.querySelectorAll('.orow input')[2].value.startsWith('Áo thử'));
+  ok((await ai.locator('.orow input').first().inputValue()) === 'Tên tôi sửa', 'tên người dùng đã sửa không bị AI ghi đè');
+  aiMode = '401'; await ai.locator('.orow input').nth(2).fill('');
+  await ai.click('#aibtn'); await ai.waitForSelector('.notice.err');
+  ok((await ai.locator('.notice.err').innerText()).includes('API key không đúng'), 'báo lỗi rõ khi key sai (401)');
+  await noOverflow(ai, 'form tạo (cài đặt AI)'); await ai.screenshot({ path: shots + '/07-ai.png', fullPage: true });
+
   // ---- Chủ poll
   const o = await mk(); await o.goto(base); await o.waitForSelector('#newbtn');
   await noOverflow(o, 'trang chính'); await o.screenshot({ path: shots + '/01-home.png' });
